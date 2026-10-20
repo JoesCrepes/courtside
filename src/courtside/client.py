@@ -156,12 +156,14 @@ class EspnClient:
         return body
 
     def move(
-        self, player_query: str, to_slot: int, *, scoring_period: int | None = None, execute: bool = False
+        self, player_query: str, to_slot: int, *, swap_with: str | None = None,
+        scoring_period: int | None = None, execute: bool = False,
     ) -> dict:
         period = scoring_period or self.current_scoring_period()
         team = self.team(scoring_period=period)
         player = team.find(player_query)
-        moves = plan_move(team, player.id, to_slot, slot_counts_from_settings(self.settings()))
+        other = team.find(swap_with).id if swap_with else None
+        moves = plan_move(team, player.id, to_slot, slot_counts_from_settings(self.settings()), other)
         return self.submit(self.build_lineup(moves, period), execute=execute)
 
     def build_lineup(self, moves: list[LineupMove], scoring_period: int) -> dict:

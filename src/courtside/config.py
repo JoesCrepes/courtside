@@ -11,7 +11,7 @@ def _load_dotenv(path: Path) -> None:
     """Minimal .env loader so we don't need python-dotenv. Existing env wins."""
     if not path.is_file():
         return
-    for line in path.read_text().splitlines():
+    for line in path.read_text(encoding="utf-8-sig").splitlines():
         line = line.strip()
         if not line or line.startswith("#") or "=" not in line:
             continue

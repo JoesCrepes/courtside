@@ -1,12 +1,22 @@
 {
   "isLeagueManager": false,
-  "teamId": 3,
+  "teamId": 13,
   "type": "ROSTER",
   "memberId": "{AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE}",
-  "scoringPeriodId": 4,
+  "scoringPeriodId": 1,
   "executionType": "EXECUTE",
   "items": [
-    {"playerId": 109, "type": "LINEUP", "fromTeamId": 3, "fromLineupSlotId": 12, "toTeamId": 3, "toLineupSlotId": 0},
-    {"playerId": 101, "type": "LINEUP", "fromTeamId": 3, "fromLineupSlotId": 0, "toTeamId": 3, "toLineupSlotId": 12}
+    {
+      "playerId": 4397014,
+      "type": "LINEUP",
+      "fromLineupSlotId": 12,
+      "toLineupSlotId": 11
+    },
+    {
+      "playerId": 5144091,
+      "type": "LINEUP",
+      "fromLineupSlotId": 11,
+      "toLineupSlotId": 12
+    }
   ]
 }

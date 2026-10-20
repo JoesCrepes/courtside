@@ -110,7 +110,7 @@ def test_move_end_to_end(client, fake):
         (109, BE, PG),
         (101, PG, BE),
     ]
-    assert all(i["fromTeamId"] == i["toTeamId"] == TEAM_ID for i in body["items"])
+    assert all("fromTeamId" not in i and "toTeamId" not in i for i in body["items"])
 
 
 def test_move_future_day_uses_that_period(client, fake):
@@ -118,6 +118,5 @@ def test_move_future_day_uses_that_period(client, fake):
     assert out["dry_run"] is True
     assert out["payload"]["scoringPeriodId"] == 7
     assert out["payload"]["items"] == [
-        {"playerId": 109, "type": "LINEUP", "fromTeamId": TEAM_ID, "fromLineupSlotId": BE,
-         "toTeamId": TEAM_ID, "toLineupSlotId": 11}
+        {"playerId": 109, "type": "LINEUP", "fromLineupSlotId": BE, "toLineupSlotId": 11}
     ]

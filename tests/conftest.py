@@ -82,7 +82,7 @@ FREE_AGENTS = {
     "players": [
         {"id": 201, "player": {"fullName": "Free Fred", "eligibleSlots": [PG, G, UTIL, BE],
                                "ownership": {"percentOwned": 42.5}}},
-        {"id": 202, "player": {"fullName": "Waiver Will", "eligibleSlots": [C, UTIL, BE],
+        {"id": 202, "status": "WAIVERS", "player": {"fullName": "Waiver Will", "eligibleSlots": [C, UTIL, BE],
                                "injuryStatus": "DAY_TO_DAY", "ownership": {"percentOwned": 12.0}}},
     ]
 }

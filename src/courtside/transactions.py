@@ -11,11 +11,12 @@ own league with `courtside compare` before trusting it (see docs/CAPTURE.md).
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from typing import Any
 
 from .models import Team
-from .slots import BENCH, IR, slot_name
+from .slots import BENCH, IR, IR_ELIGIBLE, slot_name
 
 
 class LineupError(ValueError):
@@ -48,13 +49,13 @@ def lineup_payload(
 ) -> dict[str, Any]:
     if not moves:
         raise LineupError("no lineup moves to submit")
+    # Verified against a live capture (Oct 2026): unlike add/drop items,
+    # lineup items carry no fromTeamId/toTeamId.
     items = [
         {
             "playerId": m.player_id,
             "type": "LINEUP",
-            "fromTeamId": team_id,
             "fromLineupSlotId": m.from_slot,
-            "toTeamId": team_id,
             "toLineupSlotId": m.to_slot,
         }
         for m in moves
@@ -107,19 +108,22 @@ def waiver_payload(
 
 
 def plan_move(
-    team: Team, player_id: int, to_slot: int, slot_counts: dict[int, int]
+    team: Team, player_id: int, to_slot: int, slot_counts: dict[int, int], swap_with: int | None = None
 ) -> list[LineupMove]:
     """Work out the moves needed to put a player in a slot.
 
     If the slot has room, it's a single move. If it's full, swap with an
     occupant who can fill the player's old slot, or else bench the occupant.
     Mirrors what ESPN's own UI does when you tap "MOVE" then a filled slot.
+    `swap_with` picks which occupant gives up the slot.
     """
     player = team.player(player_id)
     if player.lineup_slot == to_slot:
         raise LineupError(f"{player.name} is already in {slot_name(to_slot)}")
     if to_slot not in (BENCH, IR) and to_slot not in player.eligible_slots:
         raise LineupError(f"{player.name} is not eligible for {slot_name(to_slot)}")
+    if to_slot == IR and player.injury_status not in IR_ELIGIBLE:
+        raise LineupError(f"{player.name} is {player.injury_status}; only OUT players can go on IR")
 
     capacity = slot_counts.get(to_slot, 0)
     if to_slot != BENCH and capacity == 0:
@@ -128,7 +132,14 @@ def plan_move(
     occupants = [p for p in team.roster if p.lineup_slot == to_slot and p.id != player_id]
     move = LineupMove(player_id, player.lineup_slot, to_slot)
     if to_slot == BENCH or len(occupants) < capacity:
+        if swap_with is not None:
+            raise LineupError(f"{slot_name(to_slot)} has room; no swap needed")
         return [move]
+    if swap_with is not None:
+        occupants = [p for p in occupants if p.id == swap_with]
+        if not occupants:
+            other = team.player(swap_with)
+            raise LineupError(f"{other.name} is not in {slot_name(to_slot)}")
 
     from_slot = player.lineup_slot
     if from_slot != IR:
@@ -144,6 +155,17 @@ def plan_move(
 def slot_counts_from_settings(settings: dict[str, Any]) -> dict[int, int]:
     raw = settings["rosterSettings"]["lineupSlotCounts"]
     return {int(k): int(v) for k, v in raw.items()}
+
+
+def captures_from_har(har: dict[str, Any]) -> list[dict[str, Any]]:
+    """Request bodies of every transaction POST in a DevTools HAR export."""
+    return [
+        json.loads(e["request"]["postData"]["text"])
+        for e in har["log"]["entries"]
+        if e["request"]["method"] == "POST"
+        and "/transactions/" in e["request"]["url"]
+        and e["request"].get("postData", {}).get("text")
+    ]
 
 
 def rebuild_from_capture(captured: dict[str, Any]) -> dict[str, Any]:

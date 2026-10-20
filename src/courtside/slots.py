@@ -29,6 +29,12 @@ IR = SLOT_IDS["IR"]
 # Slots that never count as "starting".
 NON_STARTING = {BENCH, IR}
 
+# The five real positions; ids 5-11 are flex slots derived from these.
+POSITIONS = {0, 1, 2, 3, 4}
+
+# ESPN injury statuses that may be placed in an IR slot.
+IR_ELIGIBLE = {"OUT", "INJURY_RESERVE"}
+
 
 def slot_id(value: str | int) -> int:
     """Accept a slot name ("PG", "util") or numeric id."""

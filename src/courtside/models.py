@@ -17,6 +17,8 @@ class Player:
     injury_status: str = "ACTIVE"
     pro_team_id: int | None = None
     percent_owned: float | None = None
+    # Pool status from the free agent view: "FREEAGENT" or "WAIVERS".
+    status: str | None = None
 
     @property
     def is_starting(self) -> bool:
@@ -51,6 +53,7 @@ class Player:
             injury_status=p.get("injuryStatus") or "ACTIVE",
             pro_team_id=p.get("proTeamId"),
             percent_owned=(p.get("ownership") or {}).get("percentOwned"),
+            status=entry.get("status"),
         )
 
 

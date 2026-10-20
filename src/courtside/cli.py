@@ -3,14 +3,15 @@
 from __future__ import annotations
 
 import argparse
+import io
 import json
 import sys
 from pathlib import Path
 
 from .client import EspnClient, EspnError
 from .config import Config
-from .slots import slot_id, slot_name
-from .transactions import LineupError, compare_payloads, rebuild_from_capture
+from .slots import POSITIONS, slot_id, slot_name
+from .transactions import LineupError, captures_from_har, compare_payloads, rebuild_from_capture
 
 
 def _print_json(obj: object) -> None:
@@ -22,7 +23,7 @@ def cmd_roster(client: EspnClient, args: argparse.Namespace) -> None:
     print(f"{team.name} ({team.abbrev})")
     for p in sorted(team.roster, key=lambda p: (not p.is_starting, p.lineup_slot)):
         inj = "" if p.injury_status == "ACTIVE" else f"  [{p.injury_status}]"
-        elig = "/".join(slot_name(s) for s in p.eligible_slots if s < 12)
+        elig = "/".join(slot_name(s) for s in p.eligible_slots if s in POSITIONS)
         print(f"  {p.slot:>5}  {p.name:<26} {p.id:>8}  {elig}{inj}")
 
 
@@ -30,11 +31,14 @@ def cmd_fa(client: EspnClient, args: argparse.Namespace) -> None:
     for p in client.free_agents(limit=args.limit, position=args.pos):
         own = f"{p.percent_owned:5.1f}%" if p.percent_owned is not None else "     -"
         inj = "" if p.injury_status == "ACTIVE" else f"  [{p.injury_status}]"
-        print(f"  {own}  {p.name:<26} {p.id:>8}{inj}")
+        wa = "  WA" if p.status == "WAIVERS" else "    "
+        print(f"  {own}{wa}  {p.name:<26} {p.id:>8}{inj}")
 
 
 def cmd_move(client: EspnClient, args: argparse.Namespace) -> None:
-    _print_json(client.move(args.player, slot_id(args.slot), scoring_period=args.day, execute=args.execute))
+    _print_json(client.move(
+        args.player, slot_id(args.slot), swap_with=args.swap, scoring_period=args.day, execute=args.execute
+    ))
 
 
 def cmd_add(client: EspnClient, args: argparse.Namespace) -> None:
@@ -52,15 +56,24 @@ def cmd_drop(client: EspnClient, args: argparse.Namespace) -> None:
 
 
 def cmd_compare(args: argparse.Namespace) -> int:
-    captured = json.loads(Path(args.captured).read_text())
-    diffs = compare_payloads(captured, rebuild_from_capture(captured))
-    if not diffs:
-        print(f"OK: our {captured.get('type')} builder matches the capture exactly")
-        return 0
-    print(f"MISMATCH ({len(diffs)}):")
-    for d in diffs:
-        print(f"  - {d}")
-    return 1
+    # utf-8-sig: Notepad and PowerShell save JSON with a byte-order mark.
+    try:
+        data = json.loads(Path(args.captured).read_text(encoding="utf-8-sig"))
+        captures = captures_from_har(data) if "log" in data else [data]
+        if not captures:
+            raise ValueError("no POST .../transactions/ requests in this HAR")
+        results = [(c, compare_payloads(c, rebuild_from_capture(c))) for c in captures]
+    except (OSError, ValueError, KeyError) as e:
+        print(f"error: {e}", file=sys.stderr)
+        return 1
+    for captured, diffs in results:
+        if not diffs:
+            print(f"OK: our {captured.get('type')} builder matches the capture exactly")
+            continue
+        print(f"MISMATCH in {captured.get('type')} ({len(diffs)}):")
+        for d in diffs:
+            print(f"  - {d}")
+    return 0 if all(not d for _, d in results) else 1
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -78,6 +91,7 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("move", help="move a player to a lineup slot")
     p.add_argument("player", help="player id or name fragment")
     p.add_argument("slot", help="PG, SG, SF, PF, C, G, F, UTIL, BE, IR or numeric id")
+    p.add_argument("--swap", help="which occupant of a full slot to move out (id or name)")
     p.add_argument("--day", type=int, help="scoring period id (default: today)")
     p.add_argument("--execute", action="store_true")
 
@@ -93,11 +107,14 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--execute", action="store_true")
 
     p = sub.add_parser("compare", help="check our payload builder against a captured request body")
-    p.add_argument("captured", help="JSON file copied from DevTools (Request Payload)")
+    p.add_argument("captured", help="request body JSON or a HAR export from DevTools")
     return ap
 
 
 def main(argv: list[str] | None = None) -> int:
+    # Windows pipes default to cp1252, which can't print accented names like Jokic's.
+    if isinstance(sys.stdout, io.TextIOWrapper) and sys.stdout.encoding.lower() != "utf-8":
+        sys.stdout.reconfigure(encoding="utf-8")
     args = build_parser().parse_args(argv)
     if args.cmd == "compare":
         return cmd_compare(args)

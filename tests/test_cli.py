@@ -49,6 +49,7 @@ def test_fa_command(env, fake, capsys):
     assert cli.main(["fa", "--limit", "5"]) == 0
     out = capsys.readouterr().out
     assert "42.5%" in out and "Free Fred" in out
+    assert "WA  Waiver Will" in out and "WA  Free Fred" not in out
 
 
 def test_move_command_is_dry_run_even_with_execute(env, fake, capsys):
@@ -75,3 +76,54 @@ def test_add_with_drop_by_name(env, fake, capsys):
 def test_bad_move_is_friendly_error(env, fake, capsys):
     assert cli.main(["move", "center cal", "PG"]) == 1
     assert "not eligible for PG" in capsys.readouterr().err
+
+
+def test_compare_accepts_byte_order_mark(tmp_path, capsys):
+    f = tmp_path / "bom.json"
+    f.write_text((FIXTURES / "captured_lineup.json").read_text(), encoding="utf-8-sig")
+    assert cli.main(["compare", str(f)]) == 0
+
+
+def test_compare_bad_input_is_friendly_error(tmp_path, capsys):
+    f = tmp_path / "trade.json"
+    f.write_text('{"teamId": 3, "type": "TRADE_PROPOSAL", "items": []}')
+    assert cli.main(["compare", str(f)]) == 1
+    assert "no builder for transaction type" in capsys.readouterr().err
+    assert cli.main(["compare", str(tmp_path / "missing.json")]) == 1
+
+
+def test_dotenv_with_byte_order_mark(env, monkeypatch):
+    from courtside import Config
+
+    monkeypatch.delenv("ESPN_LEAGUE_ID")
+    (Path.cwd() / ".env").write_text("ESPN_LEAGUE_ID=42\n", encoding="utf-8-sig")
+    assert Config.from_env().league_id == 42
+
+
+def test_non_ascii_names_survive_a_cp1252_pipe(tmp_path):
+    import subprocess
+    import sys
+
+    script = (
+        "import sys, io\n"
+        "sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='cp1252')\n"
+        "from courtside import cli\n"
+        "cli.main(['compare', 'nope.json'])\n"
+        "print('Nikola Joki\u0107')\n"
+    )
+    r = subprocess.run([sys.executable, "-c", script], cwd=tmp_path, capture_output=True)
+    assert r.returncode == 0, r.stderr
+    assert "Jokić" in r.stdout.decode("utf-8")
+
+
+def test_compare_reads_har_exports(tmp_path, capsys):
+    body = (FIXTURES / "captured_lineup.json").read_text()
+    har = {"log": {"entries": [
+        {"request": {"method": "GET", "url": "https://lm-api-reads.fantasy.espn.com/x"}},
+        {"request": {"method": "POST", "url": "https://lm-api-writes.fantasy.espn.com/x/transactions/?v=1",
+                     "postData": {"text": body}}},
+    ]}}
+    f = tmp_path / "x.har"
+    f.write_text(json.dumps(har))
+    assert cli.main(["compare", str(f)]) == 0
+    assert "OK: our ROSTER builder" in capsys.readouterr().out

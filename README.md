@@ -76,7 +76,7 @@ The suite runs fully offline against a fake ESPN backend (`tests/conftest.py`).
 | Feature | State |
 |---|---|
 | Roster, free agents, scoring period | Built; read endpoints are well established (used by `espn-api`). |
-| Lineup moves | Built; payload unverified against a live capture. |
-| Free-agent add/drop | Built; payload unverified against a live capture. |
+| Lineup moves | Built; payload verified against a live capture (Oct 2026). |
+| Free-agent add/drop | Built; payload verified against a live capture (Oct 2026). |
 | Waiver claims + FAAB | Built; `bidAmount` placement unverified. |
 | Trades | Not started. Accept/decline has never been publicly captured. |

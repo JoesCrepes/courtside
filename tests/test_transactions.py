@@ -43,10 +43,8 @@ def test_lineup_payload_shape():
         "scoringPeriodId": 4,
         "executionType": "EXECUTE",
         "items": [
-            {"playerId": 109, "type": "LINEUP", "fromTeamId": TEAM_ID, "fromLineupSlotId": BE,
-             "toTeamId": TEAM_ID, "toLineupSlotId": PG},
-            {"playerId": 101, "type": "LINEUP", "fromTeamId": TEAM_ID, "fromLineupSlotId": PG,
-             "toTeamId": TEAM_ID, "toLineupSlotId": BE},
+            {"playerId": 109, "type": "LINEUP", "fromLineupSlotId": BE, "toLineupSlotId": PG},
+            {"playerId": 101, "type": "LINEUP", "fromLineupSlotId": PG, "toLineupSlotId": BE},
         ],
     }
 
@@ -180,3 +178,24 @@ def test_rebuild_matches_reference_captures(name):
 def test_rebuild_unknown_type():
     with pytest.raises(ValueError):
         rebuild_from_capture({"teamId": 1, "type": "TRADE_PROPOSAL", "items": []})
+
+
+def test_healthy_player_cannot_go_on_ir(team, counts):
+    with pytest.raises(LineupError, match="only OUT players"):
+        plan_move(team, 105, IR, counts)
+
+
+def test_swap_with_picks_the_occupant(team, counts):
+    team.player(110).lineup_slot = UTIL
+    team.player(104).lineup_slot = UTIL  # UTIL now full: Ursula, Bigs, Pete
+    assert plan_move(team, 109, UTIL, counts, swap_with=104) == [
+        LineupMove(109, BE, UTIL),
+        LineupMove(104, UTIL, BE),
+    ]
+
+
+def test_swap_with_rejects_non_occupant_or_open_slot(team, counts):
+    with pytest.raises(LineupError, match="is not in PG"):
+        plan_move(team, 109, PG, counts, swap_with=105)
+    with pytest.raises(LineupError, match="has room"):
+        plan_move(team, 110, UTIL, counts, swap_with=108)
