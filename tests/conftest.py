@@ -72,11 +72,44 @@ LEAGUE_VIEWS = {
 def teams_view() -> dict:
     return {
         "teams": [
-            {"id": 1, "location": "Other", "nickname": "Team", "abbrev": "OTH", "roster": {"entries": []}},
-            {"id": TEAM_ID, "name": "Joe's Crepes", "abbrev": "JOE", "roster": {"entries": my_roster()}},
+            {"id": 1, "location": "Other", "nickname": "Team", "abbrev": "OTH", "roster": {"entries": []},
+             "playoffSeed": 2, "record": {"overall": {"wins": 0, "losses": 1, "pointsFor": 400.0}}},
+            {"id": TEAM_ID, "name": "Joe's Crepes", "abbrev": "JOE", "roster": {"entries": my_roster()},
+             "playoffSeed": 1, "waiverRank": 7,
+             "record": {"overall": {"wins": 1, "losses": 0, "pointsFor": 512.5, "pointsAgainst": 400.0}}},
         ]
     }
 
+
+LEAGUE_VIEWS["mMatchupScore"] = {"schedule": [
+    {"id": 1, "matchupPeriodId": 1, "winner": "UNDECIDED", "playoffTierType": "NONE",
+     "home": {"teamId": TEAM_ID, "totalPoints": 100.0, "totalPointsLive": 120.5},
+     "away": {"teamId": 1, "totalPoints": 90.0, "totalPointsLive": 95.0}},
+    {"id": 2, "matchupPeriodId": 2, "winner": "UNDECIDED", "playoffTierType": "NONE",
+     "home": {"teamId": 1, "totalPoints": 0.0}, "away": {"teamId": TEAM_ID, "totalPoints": 0.0}},
+]}
+LEAGUE_VIEWS["mPendingTransactions"] = {"pendingTransactions": [
+    {"id": "p1", "type": "WAIVER", "status": "PENDING", "teamId": TEAM_ID, "bidAmount": 0,
+     "items": [{"type": "ADD", "playerId": 202, "toTeamId": TEAM_ID}]},
+]}
+
+# NBA teams 1 (BOS) and 2 (NYK) play each other today. Every fake rostered
+# player is on team 1, so all of them have a game today and none on day 5.
+PRO_SCHEDULE = {"settings": {"proTeams": [
+    {"id": 1, "abbrev": "bos", "proGamesByScoringPeriod": {str(TODAY): [
+        {"id": 9001, "date": 1792000000000, "homeProTeamId": 1, "awayProTeamId": 2, "scoringPeriodId": TODAY}]}},
+    {"id": 2, "abbrev": "nyk", "proGamesByScoringPeriod": {str(TODAY): [
+        {"id": 9001, "date": 1792000000000, "homeProTeamId": 1, "awayProTeamId": 2, "scoringPeriodId": TODAY}]}},
+]}}
+
+ACTIVITY = {"topics": [
+    {"date": 1792508512143, "targetId": LEAGUE_ID, "messages": [
+        {"messageTypeId": 188, "targetId": 109, "for": TEAM_ID, "from": 12, "to": 0},
+        {"messageTypeId": 188, "targetId": 101, "for": TEAM_ID, "from": 0, "to": 12}]},
+    {"date": 1792508231584, "targetId": LEAGUE_ID, "messages": [
+        {"messageTypeId": 178, "targetId": 201, "to": TEAM_ID},
+        {"messageTypeId": 179, "targetId": 110, "to": TEAM_ID}]},
+]}
 
 FREE_AGENTS = {
     "players": [
@@ -99,6 +132,12 @@ class FakeEspn:
         self.reads_url = READS + base
         self.writes_url = WRITES + base + "/transactions/"
         rsps.add_callback(responses.GET, self.reads_url, callback=self._read)
+        game = READS + f"/seasons/{SEASON}"
+        rsps.add(responses.GET, game, json=PRO_SCHEDULE)
+        names = [{"id": e["playerId"], "fullName": e["playerPoolEntry"]["player"]["fullName"]} for e in my_roster()]
+        names += [{"id": p["id"], "fullName": p["player"]["fullName"]} for p in FREE_AGENTS["players"]]
+        rsps.add(responses.GET, game + "/players", json=names)
+        rsps.add(responses.GET, self.reads_url + "/communication/", json=ACTIVITY)
         rsps.add_callback(responses.POST, self.writes_url, callback=self._write)
 
     def _read(self, request):

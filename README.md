@@ -53,6 +53,27 @@ courtside compare captured.json
 
 See [docs/CAPTURE.md](docs/CAPTURE.md) for how to capture a request.
 
+## HTTP API (`server/`)
+
+A FastAPI app over the same client, deployed on Vercel, for the Android app.
+
+| Route | |
+|---|---|
+| `GET /context` | Your team, today's scoring period, current matchup week |
+| `GET /league` | Settings and standings |
+| `GET /roster?day=`, `GET /teams/{id}?day=` | Roster with fantasy-point averages and each player's NBA game that day |
+| `GET /scoreboard?week=` | Matchups with live points |
+| `GET /players?q=&pos=&available=` | Free agents, or search all players |
+| `GET /activity`, `GET /pending` | League transactions, pending claims and trades |
+| `POST /lineup/preview` → `/lineup/confirm` | Lineup moves |
+| `POST /roster/preview` → `/roster/confirm` | Add, drop, waiver claim |
+
+Send `Authorization: Bearer <token>`. A Supabase Auth access token for an
+email on `COURTSIDE_ALLOWED_EMAILS` can read and write; `COURTSIDE_API_KEY`
+can only read. A confirm re-plans against fresh ESPN data and answers 409 if
+the plan changed since the preview. Server env: the `ESPN_*` settings,
+`COURTSIDE_API_KEY`, `SUPABASE_URL`, `COURTSIDE_ALLOWED_EMAILS`.
+
 ## Layout
 
 | Module | What it does |

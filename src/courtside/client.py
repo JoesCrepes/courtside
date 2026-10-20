@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 import json
+import time
 from typing import Any
 
 import requests
 
 from .config import Config
-from .models import Player, Team
+from .models import Activity, Matchup, Player, ProSchedule, Team
 from .slots import SLOT_IDS
 from .transactions import (
     LineupMove,
@@ -21,6 +22,12 @@ from .transactions import (
 
 READS = "https://lm-api-reads.fantasy.espn.com/apis/v3/games/fba"
 WRITES = "https://lm-api-writes.fantasy.espn.com/apis/v3/games/fba"
+
+
+# Season-static data (NBA schedule, player names), shared across requests in
+# one process: (season, kind) -> (fetched_at, value).
+_CACHE: dict[tuple[int, str], tuple[float, Any]] = {}
+CACHE_TTL = 6 * 3600
 
 
 class EspnError(RuntimeError):
@@ -70,8 +77,14 @@ class EspnClient:
 
     # ---- reads ----------------------------------------------------------
 
-    def _get(self, params: list[tuple[str, Any]], headers: dict[str, str] | None = None) -> dict:
-        r = self.session.get(self.reads_url, params=params, headers=headers, timeout=20)
+    @property
+    def game_url(self) -> str:
+        return READS + f"/seasons/{self.config.season}"
+
+    def _get(
+        self, params: list[tuple[str, Any]], headers: dict[str, str] | None = None, url: str | None = None
+    ) -> Any:
+        r = self.session.get(url or self.reads_url, params=params, headers=headers, timeout=20)
         if r.status_code in (401, 403):
             raise EspnError(
                 f"HTTP {r.status_code}: private league needs valid ESPN_S2 and ESPN_SWID cookies"
@@ -87,10 +100,17 @@ class EspnClient:
             params.append(("scoringPeriodId", scoring_period))
         return self._get(params)
 
-    def current_scoring_period(self) -> int:
-        """Today's scoring period. In basketball, one scoring period = one day."""
+    def status(self) -> dict[str, int]:
+        """Today's scoring period (one per day) and matchup period (week)."""
         data = self.league("mStatus")
-        return int(data.get("scoringPeriodId") or data["status"]["latestScoringPeriod"])
+        st = data.get("status", {})
+        return {
+            "scoring_period": int(data.get("scoringPeriodId") or st["latestScoringPeriod"]),
+            "matchup_period": int(st.get("currentMatchupPeriod") or 1),
+        }
+
+    def current_scoring_period(self) -> int:
+        return self.status()["scoring_period"]
 
     def settings(self) -> dict:
         return self.league("mSettings")["settings"]
@@ -107,17 +127,92 @@ class EspnClient:
         raise EspnError(f"team {team_id} not found in league {self.config.league_id}")
 
     def free_agents(self, limit: int = 25, position: str | None = None) -> list[Player]:
-        filt: dict[str, Any] = {
-            "players": {
-                "filterStatus": {"value": ["FREEAGENT", "WAIVERS"]},
-                "limit": limit,
-                "sortPercOwned": {"sortPriority": 1, "sortAsc": False},
-            }
+        return self.players(limit=limit, position=position)
+
+    def players(
+        self, *, query: str | None = None, position: str | None = None, available: bool = True,
+        limit: int = 25, offset: int = 0,
+    ) -> list[Player]:
+        """Players from the league's pool, most-owned first.
+
+        available=True limits to free agents and waivers; False includes
+        rostered players. `query` matches names (ESPN's filterName).
+        """
+        players: dict[str, Any] = {
+            "limit": limit,
+            "offset": offset,
+            "sortPercOwned": {"sortPriority": 1, "sortAsc": False},
         }
+        if available:
+            players["filterStatus"] = {"value": ["FREEAGENT", "WAIVERS"]}
+        else:
+            players["filterActive"] = {"value": True}
+        if query:
+            # filterName needs filterActive; ESPN answers 400 without it.
+            players["filterName"] = {"value": query}
+            players["filterActive"] = {"value": True}
         if position:
-            filt["players"]["filterSlotIds"] = {"value": [SLOT_IDS[position.upper()]]}
-        data = self._get([("view", "kona_player_info")], headers={"x-fantasy-filter": json.dumps(filt)})
+            players["filterSlotIds"] = {"value": [SLOT_IDS[position.upper()]]}
+        data = self._get(
+            [("view", "kona_player_info")], headers={"x-fantasy-filter": json.dumps({"players": players})}
+        )
         return [Player.from_pool_entry(e) for e in data.get("players", [])]
+
+    def standings(self) -> list[Team]:
+        data = self.league("mTeam", "mStandings")
+        teams = [Team.from_json(t) for t in data.get("teams", [])]
+        return sorted(teams, key=lambda t: (t.playoff_seed or 99, -t.points_for))
+
+    def scoreboard(self, week: int | None = None) -> list[Matchup]:
+        week = week or self.status()["matchup_period"]
+        data = self.league("mMatchupScore", "mScoreboard")
+        return [Matchup.from_json(m) for m in data.get("schedule", []) if m.get("matchupPeriodId") == week]
+
+    def _cached(self, kind: str, fetch: Any) -> Any:
+        key = (self.config.season, kind)
+        hit = _CACHE.get(key)
+        if hit and time.time() - hit[0] < CACHE_TTL:
+            return hit[1]
+        value = fetch()
+        _CACHE[key] = (time.time(), value)
+        return value
+
+    def pro_schedule(self) -> ProSchedule:
+        return self._cached(
+            "pro_schedule",
+            lambda: ProSchedule.from_json(self._get([("view", "proTeamSchedules_wl")], url=self.game_url)),
+        )
+
+    def player_names(self) -> dict[int, str]:
+        """Every active NBA player's name by id (for activity and pending moves)."""
+        def fetch() -> dict[int, str]:
+            filt = {"filterActive": {"value": True}}
+            data = self._get(
+                [("view", "players_wl")], headers={"x-fantasy-filter": json.dumps(filt)},
+                url=self.game_url + "/players",
+            )
+            return {p["id"]: p.get("fullName", str(p["id"])) for p in data}
+        return self._cached("player_names", fetch)
+
+    def activity(self, limit: int = 25) -> list[Activity]:
+        """Recent league transactions, newest first."""
+        filt = {"topics": {
+            "filterType": {"value": ["ACTIVITY_TRANSACTIONS"]},
+            "limit": limit,
+            "limitPerMessageSet": {"value": 25},
+            "offset": 0,
+            "sortMessageDate": {"sortPriority": 1, "sortAsc": False},
+            "sortFor": {"sortPriority": 2, "sortAsc": False},
+        }}
+        data = self._get(
+            [("view", "kona_league_communication")], headers={"x-fantasy-filter": json.dumps(filt)},
+            url=self.reads_url + "/communication/",
+        )
+        return [Activity.from_topic(t) for t in data.get("topics", [])]
+
+    def pending(self) -> list[dict]:
+        """Pending waiver claims and trades, as ESPN returns them."""
+        return self.league("mPendingTransactions").get("pendingTransactions", [])
 
     def _my_team_id(self) -> int:
         if self.config.team_id is None:
@@ -155,29 +250,41 @@ class EspnClient:
             raise EspnWriteError(r.status_code, body)
         return body
 
-    def move(
+    def plan_lineup(
         self, player_query: str, to_slot: int, *, swap_with: str | None = None,
-        scoring_period: int | None = None, execute: bool = False,
+        scoring_period: int | None = None,
     ) -> dict:
+        """The ROSTER payload that would move a player, without sending it."""
         period = scoring_period or self.current_scoring_period()
         team = self.team(scoring_period=period)
         player = team.find(player_query)
         other = team.find(swap_with).id if swap_with else None
         moves = plan_move(team, player.id, to_slot, slot_counts_from_settings(self.settings()), other)
-        return self.submit(self.build_lineup(moves, period), execute=execute)
+        return self.build_lineup(moves, period)
+
+    def move(
+        self, player_query: str, to_slot: int, *, swap_with: str | None = None,
+        scoring_period: int | None = None, execute: bool = False,
+    ) -> dict:
+        payload = self.plan_lineup(player_query, to_slot, swap_with=swap_with, scoring_period=scoring_period)
+        return self.submit(payload, execute=execute)
 
     def build_lineup(self, moves: list[LineupMove], scoring_period: int) -> dict:
         return lineup_payload(self._my_team_id(), self._member_id(), scoring_period, moves)
+
+    def plan_add_drop(
+        self, add_id: int | None, drop_id: int | None, *, waiver: bool = False, bid: int | None = None,
+    ) -> dict:
+        """The FREEAGENT or WAIVER payload for an add/drop, without sending it."""
+        period = self.current_scoring_period()
+        if waiver:
+            if add_id is None:
+                raise ValueError("a waiver claim needs a player to add")
+            return waiver_payload(self._my_team_id(), self._member_id(), period, add_id, drop_id, bid)
+        return free_agent_payload(self._my_team_id(), self._member_id(), period, add_id, drop_id)
 
     def add_drop(
         self, add_id: int | None, drop_id: int | None, *, waiver: bool = False,
         bid: int | None = None, execute: bool = False,
     ) -> dict:
-        period = self.current_scoring_period()
-        if waiver:
-            if add_id is None:
-                raise ValueError("a waiver claim needs a player to add")
-            payload = waiver_payload(self._my_team_id(), self._member_id(), period, add_id, drop_id, bid)
-        else:
-            payload = free_agent_payload(self._my_team_id(), self._member_id(), period, add_id, drop_id)
-        return self.submit(payload, execute=execute)
+        return self.submit(self.plan_add_drop(add_id, drop_id, waiver=waiver, bid=bid), execute=execute)
