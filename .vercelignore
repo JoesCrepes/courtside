@@ -1,5 +1,6 @@
 # Never upload secrets or captured traffic (HARs hold ESPN cookies).
 .env
+.env.*
 captures/
 .venv/
 tests/

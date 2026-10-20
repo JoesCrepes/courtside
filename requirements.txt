@@ -1,3 +1,0 @@
-# Runtime deps for the Vercel deployment. Keep in sync with pyproject.toml.
-requests>=2.31
-fastapi>=0.115
