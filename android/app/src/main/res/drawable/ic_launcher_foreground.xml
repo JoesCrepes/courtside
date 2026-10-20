@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Ball -->
+    <path
+        android:fillColor="#FF7A1A"
+        android:pathData="M54,54m-25,0a25,25 0,1 1,50 0a25,25 0,1 1,-50 0" />
+    <!-- Seams -->
+    <path
+        android:pathData="M54,29V79M29,54H79M37,35.5C45,43 45,65 37,72.5M71,35.5C63,43 63,65 71,72.5"
+        android:strokeWidth="2.6"
+        android:strokeColor="#0A0D12"
+        android:strokeLineCap="round" />
+</vector>

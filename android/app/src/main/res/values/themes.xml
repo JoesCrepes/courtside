@@ -1,0 +1,11 @@
+<resources>
+    <color name="court_bg">#FF0A0D12</color>
+    <color name="hardwood">#FFFF7A1A</color>
+
+    <style name="Theme.Courtside" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/court_bg</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:windowLightStatusBar">false</item>
+    </style>
+</resources>
