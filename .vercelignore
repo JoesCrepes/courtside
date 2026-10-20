@@ -1,0 +1,8 @@
+# Never upload secrets or captured traffic (HARs hold ESPN cookies).
+.env
+captures/
+.venv/
+tests/
+docs/
+**/__pycache__/
+*.egg-info/
