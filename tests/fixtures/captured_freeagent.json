@@ -1,0 +1,12 @@
+{
+  "isLeagueManager": false,
+  "teamId": 3,
+  "type": "FREEAGENT",
+  "memberId": "{AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE}",
+  "scoringPeriodId": 4,
+  "executionType": "EXECUTE",
+  "items": [
+    {"playerId": 201, "type": "ADD", "toTeamId": 3},
+    {"playerId": 110, "type": "DROP", "fromTeamId": 3}
+  ]
+}

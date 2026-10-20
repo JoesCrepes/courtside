@@ -1,0 +1,13 @@
+{
+  "isLeagueManager": false,
+  "teamId": 3,
+  "type": "WAIVER",
+  "memberId": "{AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE}",
+  "scoringPeriodId": 4,
+  "executionType": "EXECUTE",
+  "bidAmount": 5,
+  "items": [
+    {"playerId": 202, "type": "ADD", "toTeamId": 3},
+    {"playerId": 110, "type": "DROP", "fromTeamId": 3}
+  ]
+}

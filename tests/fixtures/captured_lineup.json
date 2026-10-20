@@ -1,0 +1,12 @@
+{
+  "isLeagueManager": false,
+  "teamId": 3,
+  "type": "ROSTER",
+  "memberId": "{AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE}",
+  "scoringPeriodId": 4,
+  "executionType": "EXECUTE",
+  "items": [
+    {"playerId": 109, "type": "LINEUP", "fromTeamId": 3, "fromLineupSlotId": 12, "toTeamId": 3, "toLineupSlotId": 0},
+    {"playerId": 101, "type": "LINEUP", "fromTeamId": 3, "fromLineupSlotId": 0, "toTeamId": 3, "toLineupSlotId": 12}
+  ]
+}
