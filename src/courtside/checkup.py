@@ -229,16 +229,24 @@ def calendar_week(start: date, day: int) -> int:
 
 
 def all_star_break(sched: ProSchedule) -> tuple[int, int] | None:
-    """First and last day of the season's longest stretch with no NBA games (3+ days), if any.
+    """First and last day of the longest February stretch with no NBA games (3+ days), if any.
 
-    Inside the season that's the All-Star break. Days before the first game and
-    after the last don't count.
+    That's the All-Star break, which is always in mid-February. Gaps in other
+    months don't count: in 2026-27 ESPN's schedule has an empty stretch in
+    early December, at least as long as the break (likely NBA Cup knockout days
+    not yet scheduled), and taking it for the break stretched week 7 instead of
+    week 18. Days before the first game and after the last don't count either.
     """
+    start = first_day(sched)
+    if start is None:
+        return None
     played = sorted(d for d, games in sched.games.items() if games)
     best: tuple[int, int] | None = None
     for a, b in zip(played, played[1:]):
-        if b - a - 1 >= 3 and (best is None or b - a - 2 > best[1] - best[0]):
-            best = (a + 1, b - 1)
+        gap = (a + 1, b - 1)
+        in_february = any(day_date(start, d).month == 2 for d in range(gap[0], gap[1] + 1))
+        if gap[1] - gap[0] + 1 >= 3 and in_february and (best is None or gap[1] - gap[0] > best[1] - best[0]):
+            best = gap
     return best
 
 
