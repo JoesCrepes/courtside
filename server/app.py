@@ -133,6 +133,14 @@ def league(client: EspnClient = Depends(get_client)) -> dict:
         "day": status["scoring_period"],
         "week": status["matchup_period"],
         "schedule": matchup_schedule(s, client.pro_schedule()),
+        # ESPN's own calendar fields, unprocessed. Week dates above are worked out from
+        # the NBA schedule, and ESPN can stretch a week (the All-Star break); these let
+        # anyone check the dates against what ESPN actually says.
+        "espn_calendar": {
+            "schedule_settings": s.get("scheduleSettings"),
+            "status": client.raw_status(),
+            "season": client.season_info(),
+        },
         "scoring_type": scoring.get("scoringType"),
         "scoring": [{"stat_id": i["statId"], "points": i["points"]} for i in scoring.get("scoringItems", [])],
         "slots": {slot_name(int(k)): v for k, v in roster["lineupSlotCounts"].items() if v},

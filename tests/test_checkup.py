@@ -1,7 +1,8 @@
 from datetime import date, datetime, timezone
 
 from courtside.checkup import (
-    best_starters, check_day, first_day, games_left, matchup_days, matchup_schedule, remaining_days,
+    best_starters, check_day, current_matchup_days, first_day, games_left, matchup_days, matchup_schedule,
+    remaining_days,
 )
 from courtside.models import Player, ProGame, ProSchedule, Team
 
@@ -148,3 +149,27 @@ def test_matchup_schedule_dates():
     assert (weeks[5]["start"], weeks[5]["end"]) == ("2026-11-16", "2026-11-22")
     assert (weeks[18]["start"], weeks[18]["end"]) == ("2027-02-15", "2027-02-28")
     assert (weeks[19]["start"], weeks[19]["end"]) == ("2027-03-01", "2027-03-07")
+
+
+# What ESPN actually sends for this league: 22 matchup periods, one ESPN week
+# each. ESPN's week 18 is Feb 15-28 (All-Star break), which the settings don't
+# show, so by the calendar week 18 looks like Feb 15-21 and week 19 like Feb
+# 22-28, when ESPN's week 19 is really Mar 1-7.
+LIVE_WEEKS = {"scheduleSettings": {"matchupPeriods": {str(w): [w] for w in range(1, 23)}}}
+
+
+def test_current_matchup_is_exact_when_today_fits():
+    assert current_matchup_days(LIVE_WEEKS, SEASON, 5, 31) == (list(range(28, 35)), True)
+
+
+def test_second_half_of_the_all_star_matchup_counts_to_sunday():
+    # Wed Feb 24 is day 128. ESPN says it's still matchup 18; the calendar put
+    # 18 at days 119-125. The matchup runs at least through Sun Feb 28 (day 132).
+    days, exact = current_matchup_days(LIVE_WEEKS, SEASON, 18, 128)
+    assert (days, exact) == ([128, 129, 130, 131, 132], False)
+
+
+def test_matchups_after_the_all_star_break_count_to_sunday():
+    # Wed Mar 3 is day 135 and ESPN says matchup 19, which really is Mar 1-7.
+    days, exact = current_matchup_days(LIVE_WEEKS, SEASON, 19, 135)
+    assert (days, exact) == ([135, 136, 137, 138, 139], False)
