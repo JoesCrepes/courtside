@@ -110,7 +110,7 @@ def test_roster_has_games_positions_and_stats(api, fake):
     paul = next(p for p in body["roster"] if p["name"] == "Point Guard Paul")
     assert paul["positions"] == ["PG"] and paul["slot"] == "PG" and paul["is_starting"]
     assert paul["pro_team"] == "BOS"
-    assert paul["game"] == {"id": 9001, "start": 1792000000000, "home": True, "opponent": "NYK"}
+    assert paul["game"] == {"id": 9001, "start": 1792279800000, "home": True, "opponent": "NYK"}
     off_day = api.get("/roster", headers=USER, params={"day": 5}).json()
     assert all(p["game"] is None for p in off_day["roster"])
     assert "scoringPeriodId=5" in fake.rsps.calls[-1].request.url or any(
@@ -125,6 +125,11 @@ def test_league(api):
     body = api.get("/league", headers=USER).json()
     assert body["slots"]["UTIL"] == 3 and "SG/SF" not in body["slots"]
     assert [t["id"] for t in body["standings"]] == [TEAM_ID, 1]
+    assert (body["day"], body["week"]) == (4, 1)
+    assert body["schedule"] == [
+        {"week": 1, "first_day": 1, "last_day": 5, "start": "2026-10-14", "end": "2026-10-18"},
+        {"week": 2, "first_day": 6, "last_day": 12, "start": "2026-10-19", "end": "2026-10-25"},
+    ]
 
 
 def test_scoreboard_defaults_to_current_week_with_live_points(api):

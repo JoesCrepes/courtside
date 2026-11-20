@@ -18,6 +18,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from courtside import Config, EspnClient, EspnError, EspnWriteError
+from courtside.checkup import matchup_schedule
 from courtside.models import Matchup, Player, ProSchedule, Team
 from courtside.slots import POSITIONS, slot_id, slot_name
 from courtside.transactions import LineupError
@@ -126,8 +127,12 @@ def context(who: Caller = Depends(caller), client: EspnClient = Depends(get_clie
 def league(client: EspnClient = Depends(get_client)) -> dict:
     s = client.settings()
     roster, scoring, acq = s["rosterSettings"], s.get("scoringSettings", {}), s.get("acquisitionSettings", {})
+    status = client.status()
     return {
         "name": s.get("name"),
+        "day": status["scoring_period"],
+        "week": status["matchup_period"],
+        "schedule": matchup_schedule(s, client.pro_schedule()),
         "scoring_type": scoring.get("scoringType"),
         "scoring": [{"stat_id": i["statId"], "points": i["points"]} for i in scoring.get("scoringItems", [])],
         "slots": {slot_name(int(k)): v for k, v in roster["lineupSlotCounts"].items() if v},

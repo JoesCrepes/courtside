@@ -60,7 +60,7 @@ A FastAPI app over the same client, deployed on Vercel, for the Android app.
 | Route | |
 |---|---|
 | `GET /context` | Your team, today's scoring period, current matchup week |
-| `GET /league` | Settings and standings |
+| `GET /league` | Settings, today's day and week, each week's days and dates, and standings |
 | `GET /roster?day=`, `GET /teams/{id}?day=` | Roster with fantasy-point averages and each player's NBA game that day |
 | `GET /scoreboard?week=` | Matchups with live points |
 | `GET /players?q=&pos=&available=` | Free agents, or search all players |
