@@ -72,14 +72,14 @@ Send `Authorization: Bearer <token>`. A Supabase Auth access token for an
 email on `COURTSIDE_ALLOWED_EMAILS` can read and write; `COURTSIDE_API_KEY`
 can only read. A confirm re-plans against fresh ESPN data and answers 409 if
 the plan changed since the preview. Server env: the `ESPN_*` settings,
-`COURTSIDE_API_KEY`, `SUPABASE_URL`, `COURTSIDE_ALLOWED_EMAILS`.
+`COURTSIDE_API_KEY`, `SUPABASE_URL`, `SUPABASE_ANON_KEY` (for the OAuth
+consent page), `COURTSIDE_ALLOWED_EMAILS`.
 
 ### MCP (`POST /mcp`)
 
 The same server speaks MCP, so Claude can use the league as tools. It is
 stateless Streamable HTTP: one JSON-RPC message per POST, one JSON reply, no
-sessions or event stream. Auth is the same bearer token as above. All tools
-read only; writes stay on the REST preview → confirm routes.
+sessions or event stream. Auth is the same bearer token as above.
 
 | Tool | |
 |---|---|
@@ -89,11 +89,27 @@ read only; writes stay on the REST preview → confirm routes.
 | `find_players` | Free agents, or any player by name |
 | `get_league` | Settings and standings |
 | `league_activity` | Recent transactions and pending claims/trades |
+| `plan_lineup_move`, `plan_roster_move` | Work out a move and return a summary plus a plan. Change nothing |
+| `confirm_move` | Submit a plan. Signed-in users only; refused if the team changed since the plan |
 
 `checkup`'s lineup advice comes from `courtside/checkup.py`, which picks the
 best lineup for a day: the most players with a game that the slots allow,
 preferring higher recent fantasy averages, leaving locked players where they
 are.
+
+**Connecting Claude.** Add a custom connector with URL `https://<server>/mcp`.
+
+- *Sign in now* (OAuth, read and write): Supabase Auth is the authorization
+  server. In the Supabase dashboard, under Authentication → OAuth Server,
+  enable it, allow dynamic client registration, and set the authorization
+  path to `/oauth/consent`; set the Site URL (Authentication → URL
+  Configuration) to this server's origin. In the connector, pick *Register
+  automatically*. Claude finds Supabase through
+  `/.well-known/oauth-protected-resource/mcp`, which a 401 from `/mcp` points
+  to, and you approve on this server's `/oauth/consent` page with your
+  Courtside email and password.
+- *No sign-in* plus a header `Authorization: Bearer <COURTSIDE_API_KEY>`
+  (read only).
 
 ## Layout
 

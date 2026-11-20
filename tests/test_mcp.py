@@ -1,22 +1,51 @@
-from conftest import TEAM_ID, TODAY
-from test_server import APIKEY, USER, api  # noqa: F401  (fixture)
+import json
+
+from conftest import BE, PG, TEAM_ID, TODAY
+from test_server import APIKEY, SUPABASE, USER, api  # noqa: F401  (fixture)
 
 
-def rpc(api, method, params=None, *, id=1, headers=APIKEY):
+def rpc(api, method, params=None, *, id=1, headers=USER):
     msg = {"jsonrpc": "2.0", "id": id, "method": method}
     if params is not None:
         msg["params"] = params
     return api.post("/mcp", headers=headers, json=msg)
 
 
-def call(api, name, **arguments):
-    r = rpc(api, "tools/call", {"name": name, "arguments": arguments})
+def call(api, name, headers=USER, **arguments):
+    r = rpc(api, "tools/call", {"name": name, "arguments": arguments}, headers=headers)
     assert r.status_code == 200
     return r.json()["result"]
 
 
-def test_needs_auth(api):
-    assert api.post("/mcp", json={"jsonrpc": "2.0", "id": 1, "method": "ping"}).status_code == 401
+def test_needs_auth_and_points_to_oauth_metadata(api):
+    r = api.post("/mcp", json={"jsonrpc": "2.0", "id": 1, "method": "ping"})
+    assert r.status_code == 401
+    assert r.headers["www-authenticate"] == (
+        'Bearer resource_metadata="http://testserver/.well-known/oauth-protected-resource/mcp"')
+    # Behind Vercel the public origin comes from the forwarded headers.
+    r = api.post("/mcp", json={}, headers={"x-forwarded-proto": "https", "x-forwarded-host": "court.example"})
+    assert "https://court.example/.well-known" in r.headers["www-authenticate"]
+    # A bad token gets the same challenge.
+    assert "resource_metadata" in api.post("/mcp", json={}, headers={"Authorization": "Bearer nope"}).headers[
+        "www-authenticate"]
+
+
+def test_protected_resource_metadata(api):
+    for path in ("/.well-known/oauth-protected-resource", "/.well-known/oauth-protected-resource/mcp"):
+        assert api.get(path, headers={"x-forwarded-proto": "https", "host": "court.example"}).json() == {
+            "resource": "https://court.example/mcp", "authorization_servers": [f"{SUPABASE}/auth/v1"],
+            "bearer_methods_supported": ["header"], "resource_name": "Courtside"}
+
+
+def test_consent_page(api, monkeypatch):
+    assert api.get("/oauth/consent").status_code == 503  # no anon key configured
+    monkeypatch.setenv("SUPABASE_ANON_KEY", "anon-key")
+    r = api.get("/oauth/consent", params={"authorization_id": "abc"})
+    assert r.status_code == 200 and "text/html" in r.headers["content-type"]
+    assert json.dumps({"auth": f"{SUPABASE}/auth/v1", "anon": "anon-key"}) in r.text
+    csp = r.headers["content-security-policy"]
+    assert f"connect-src {SUPABASE};" in csp and "frame-ancestors 'none'" in csp and "script-src 'unsafe-inline'" in csp
+    assert r.headers["cache-control"] == "no-store"
 
 
 def test_initialize_negotiates_version(api):
@@ -39,11 +68,14 @@ def test_no_stream(api):
     assert api.get("/mcp", headers=APIKEY).status_code == 405
 
 
-def test_tools_are_listed_read_only(api):
-    tools = rpc(api, "tools/list").json()["result"]["tools"]
-    assert {t["name"] for t in tools} == {
-        "checkup", "get_roster", "get_scoreboard", "find_players", "get_league", "league_activity"}
-    assert all(t["annotations"]["readOnlyHint"] and t["inputSchema"]["type"] == "object" for t in tools)
+def test_tools_are_listed_and_only_confirm_writes(api):
+    tools = {t["name"]: t for t in rpc(api, "tools/list").json()["result"]["tools"]}
+    assert set(tools) == {
+        "checkup", "get_roster", "get_scoreboard", "find_players", "get_league", "league_activity",
+        "plan_lineup_move", "plan_roster_move", "confirm_move"}
+    assert all(t["inputSchema"]["type"] == "object" for t in tools.values())
+    assert [n for n, t in tools.items() if not t["annotations"]["readOnlyHint"]] == ["confirm_move"]
+    assert tools["confirm_move"]["annotations"]["destructiveHint"]
 
 
 def test_checkup(api):
@@ -99,3 +131,59 @@ def test_batch(api):
         {"jsonrpc": "2.0", "id": 2, "method": "tools/list"},
     ])
     assert [m["id"] for m in r.json()] == [1, 2]
+
+
+# ---- writes ----------------------------------------------------------------
+
+def test_plan_then_confirm_lineup(api, fake):
+    planned = call(api, "plan_lineup_move", player="bench ben", slot="PG")["structuredContent"]
+    assert planned["summary"] == ["Bench Ben: BE -> PG", "Point Guard Paul: PG -> BE"]
+    assert fake.posts == []  # planning changes nothing
+    done = call(api, "confirm_move", plan=planned["plan"])["structuredContent"]
+    assert done["status"] == "EXECUTED"
+    assert [(i["playerId"], i["fromLineupSlotId"], i["toLineupSlotId"]) for i in fake.posts[0]["items"]] == [
+        (109, BE, PG), (101, PG, BE)]
+
+
+def test_plan_then_confirm_roster(api, fake):
+    planned = call(api, "plan_roster_move", add=201, drop="bench bigs")["structuredContent"]
+    assert planned["summary"] == ["Add Free Fred", "Drop Bench Bigs"]
+    assert call(api, "confirm_move", plan=planned["plan"])["structuredContent"]["status"] == "EXECUTED"
+    assert fake.posts[0]["type"] == "FREEAGENT"
+
+
+def test_api_key_cannot_confirm(api, fake):
+    planned = call(api, "plan_lineup_move", headers=APIKEY, player="bench ben", slot="PG")["structuredContent"]
+    r = call(api, "confirm_move", headers=APIKEY, plan=planned["plan"])
+    assert r["isError"] and "OAuth" in r["content"][0]["text"] and fake.posts == []
+
+
+def test_caller_cannot_be_smuggled_in_arguments(api, fake):
+    planned = call(api, "plan_lineup_move", player="bench ben", slot="PG")["structuredContent"]
+    r = rpc(api, "tools/call", {"name": "confirm_move", "arguments": {"plan": planned["plan"], "who": "user"}},
+            headers=APIKEY).json()
+    assert r["error"]["code"] == -32602 and fake.posts == []
+
+
+def test_confirm_refuses_a_stale_plan(api, fake):
+    planned = call(api, "plan_lineup_move", player="bench ben", slot="PG")["structuredContent"]["plan"]
+    planned["expect"][0]["toLineupSlotId"] = 11
+    r = call(api, "confirm_move", plan=planned)
+    assert r["isError"] and "nothing was submitted" in r["content"][0]["text"] and fake.posts == []
+
+
+def test_confirm_with_writes_disabled_or_junk(api, fake, monkeypatch):
+    planned = call(api, "plan_lineup_move", player="bench ben", slot="PG")["structuredContent"]["plan"]
+    monkeypatch.setenv("ESPN_WRITE_ENABLED", "0")
+    assert "ESPN_WRITE_ENABLED" in call(api, "confirm_move", plan=planned)["content"][0]["text"]
+    assert call(api, "confirm_move", plan={"kind": "trade"})["isError"]
+    assert call(api, "confirm_move", plan="yes please")["isError"]
+    assert call(api, "confirm_move", plan={"kind": "lineup", "intent": {"expect": 1}})["isError"]
+    assert fake.posts == []
+
+
+def test_bad_plans_are_tool_errors(api):
+    assert "not eligible" in call(api, "plan_lineup_move", player="center cal", slot="PG")["content"][0]["text"]
+    assert call(api, "plan_roster_move")["isError"]
+    r = rpc(api, "tools/call", {"name": "plan_lineup_move", "arguments": {"player": "ben"}}).json()
+    assert r["error"]["code"] == -32602 and "slot" in r["error"]["message"]

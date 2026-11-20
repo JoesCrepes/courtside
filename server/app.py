@@ -295,5 +295,7 @@ def roster_confirm(body: RosterConfirm, client: EspnClient = Depends(get_client)
 
 # Imported last: server/mcp.py reuses the helpers above.
 from .mcp import router as mcp_router  # noqa: E402
+from .oauth import router as oauth_router  # noqa: E402
 
 app.include_router(mcp_router)
+app.include_router(oauth_router)
