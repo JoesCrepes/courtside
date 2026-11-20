@@ -191,10 +191,11 @@ def games_left(
 #
 # ESPN numbers each day of the season as a scoring period, starting at 1. Its
 # league settings map each matchup period to the ESPN *weeks* it covers
-# (scheduleSettings.matchupPeriods, e.g. {"5": [5], "18": [18, 19]}), not to
-# days. ESPN's weeks run Monday to Sunday, with week 1 running from day 1 to
-# the first Sunday. Nothing in the league says which date day 1 is, so we read
-# it off the NBA schedule, where every game carries both its day and its date.
+# (scheduleSettings.matchupPeriods, e.g. {"5": [5]}), not to days. ESPN's
+# weeks run Monday to Sunday, with week 1 running from day 1 to the first
+# Sunday, except the one over the All-Star break (see `long_week`). Nothing in
+# the league says which date day 1 is, so we read it off the NBA schedule,
+# where every game carries both its day and its date.
 
 # NBA games tip between noon and about 11pm Eastern. A fixed UTC-5 puts every
 # one on its Eastern calendar day, with or without daylight saving time.
@@ -215,11 +216,55 @@ def day_date(start: date, day: int) -> date:
     return start + timedelta(days=day - 1)
 
 
-def week_days(start: date, week: int) -> range:
-    """The scoring periods in ESPN week `week` (Monday to Sunday)."""
+def calendar_week_days(start: date, week: int) -> range:
+    """The scoring periods in calendar week `week` (Monday to Sunday; week 1 holds day 1)."""
     monday = start - timedelta(days=start.weekday()) + timedelta(weeks=week - 1)
     first = (monday - start).days + 1
     return range(max(first, 1), first + 7)
+
+
+def calendar_week(start: date, day: int) -> int:
+    """The calendar week (as in `calendar_week_days`) that holds scoring period `day`."""
+    return (day_date(start, day) - (start - timedelta(days=start.weekday()))).days // 7 + 1
+
+
+def all_star_break(sched: ProSchedule) -> tuple[int, int] | None:
+    """First and last day of the season's longest stretch with no NBA games (3+ days), if any.
+
+    Inside the season that's the All-Star break. Days before the first game and
+    after the last don't count.
+    """
+    played = sorted(d for d, games in sched.games.items() if games)
+    best: tuple[int, int] | None = None
+    for a, b in zip(played, played[1:]):
+        if b - a - 1 >= 3 and (best is None or b - a - 2 > best[1] - best[0]):
+            best = (a + 1, b - 1)
+    return best
+
+
+def long_week(sched: ProSchedule, start: date) -> int | None:
+    """The calendar week ESPN stretches over the next one too, or None.
+
+    ESPN makes the week the All-Star break starts in and the week it ends in
+    one week: in 2026-27 the break runs over Sunday Feb 21, so ESPN's week 18 is
+    Feb 15-28 and every later ESPN week is one calendar week later. (That
+    league's finalScoringPeriod, 160, is exactly 7 days more than all-7-day
+    weeks would give.) A break inside one calendar week stretches nothing.
+    """
+    gap = all_star_break(sched)
+    if gap is None:
+        return None
+    first, last = (calendar_week(start, d) for d in gap)
+    return first if last == first + 1 else None
+
+
+def week_days(start: date, week: int, stretched: int | None = None) -> range:
+    """The scoring periods in ESPN week `week`, given the calendar week ESPN stretches (if any)."""
+    if stretched is None or week < stretched:
+        return calendar_week_days(start, week)
+    if week == stretched:
+        return range(calendar_week_days(start, week).start, calendar_week_days(start, week + 1).stop)
+    return calendar_week_days(start, week + 1)
 
 
 def matchup_weeks(settings: dict[str, Any], matchup_period: int) -> list[int]:
@@ -233,7 +278,8 @@ def matchup_days(settings: dict[str, Any], sched: ProSchedule, matchup_period: i
     start = first_day(sched)
     if start is None:
         return []
-    return sorted({d for w in matchup_weeks(settings, matchup_period) for d in week_days(start, w)})
+    stretched = long_week(sched, start)
+    return sorted({d for w in matchup_weeks(settings, matchup_period) for d in week_days(start, w, stretched)})
 
 
 def current_matchup_days(
@@ -241,10 +287,9 @@ def current_matchup_days(
 ) -> tuple[list[int], bool]:
     """Days of the matchup period ESPN says `today` is in, and whether they're exact.
 
-    Usually that's `matchup_days`. But ESPN stretches one of its weeks over two
-    calendar weeks around the All-Star break (in 2026-27, its week 18 is Feb
-    15-28), which nothing in the league settings shows, so from there on the
-    calendar runs a week early. When today falls outside the days we worked
+    Usually that's `matchup_days`, which handles the All-Star week (see
+    `long_week`). If ESPN ever stretches a week some other way, the calendar
+    would run early from there on. When today falls outside the days we worked
     out, ESPN is telling us the matchup is still on: it runs at least through
     this Sunday. Then we return today through Sunday, and say they aren't exact
     (the matchup's first day is unknown, and it may not end this Sunday).
