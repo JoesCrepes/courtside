@@ -74,6 +74,27 @@ can only read. A confirm re-plans against fresh ESPN data and answers 409 if
 the plan changed since the preview. Server env: the `ESPN_*` settings,
 `COURTSIDE_API_KEY`, `SUPABASE_URL`, `COURTSIDE_ALLOWED_EMAILS`.
 
+### MCP (`POST /mcp`)
+
+The same server speaks MCP, so Claude can use the league as tools. It is
+stateless Streamable HTTP: one JSON-RPC message per POST, one JSON reply, no
+sessions or event stream. Auth is the same bearer token as above. All tools
+read only; writes stay on the REST preview → confirm routes.
+
+| Tool | |
+|---|---|
+| `checkup` | What needs attention: lineup holes, starters with no game or injured, IR problems, starts left this week versus your opponent, pending claims |
+| `get_roster` | A roster for a day (yours or `team_id`) |
+| `get_scoreboard` | A week's matchups; yours has `mine: true` |
+| `find_players` | Free agents, or any player by name |
+| `get_league` | Settings and standings |
+| `league_activity` | Recent transactions and pending claims/trades |
+
+`checkup`'s lineup advice comes from `courtside/checkup.py`, which picks the
+best lineup for a day: the most players with a game that the slots allow,
+preferring higher recent fantasy averages, leaving locked players where they
+are.
+
 ## Layout
 
 | Module | What it does |
@@ -81,6 +102,7 @@ the plan changed since the preview. Server env: the `ESPN_*` settings,
 | `transactions.py` | Pure payload builders, lineup move planner, capture diff. No network. |
 | `client.py` | Reads (`lm-api-reads`) and writes (`lm-api-writes`), with dry-run gating. |
 | `models.py` | `Team` / `Player` views over ESPN's JSON. |
+| `checkup.py` | Best lineup for a day and the findings behind `checkup`. No network. |
 | `slots.py` | Lineup slot ids (PG=0 … UTIL=11, BE=12, IR=13). |
 | `cli.py` | `courtside` command. |
 

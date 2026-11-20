@@ -289,3 +289,11 @@ def roster_preview(body: RosterIntent, client: EspnClient = Depends(get_client))
 @app.post("/roster/confirm", dependencies=[Depends(writer)])
 def roster_confirm(body: RosterConfirm, client: EspnClient = Depends(get_client)) -> dict:
     return _confirm(client, _plan_roster(client, body), body)
+
+
+# ---- MCP -------------------------------------------------------------------
+
+# Imported last: server/mcp.py reuses the helpers above.
+from .mcp import router as mcp_router  # noqa: E402
+
+app.include_router(mcp_router)

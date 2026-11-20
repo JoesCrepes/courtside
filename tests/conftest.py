@@ -57,6 +57,7 @@ LEAGUE_VIEWS = {
     "mSettings": {
         "settings": {
             "name": "Test League",
+            "scheduleSettings": {"matchupPeriods": {"1": [TODAY - 1, TODAY, TODAY + 1], "2": [TODAY + 2]}},
             "rosterSettings": {
                 "lineupSlotCounts": {
                     str(PG): 1, str(SG): 1, str(SF): 1, str(PF): 1, str(C): 1,
