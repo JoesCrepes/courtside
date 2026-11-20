@@ -1,4 +1,8 @@
-from courtside.checkup import best_starters, check_day, games_left, remaining_days
+from datetime import date, datetime, timezone
+
+from courtside.checkup import (
+    best_starters, check_day, first_day, games_left, matchup_days, matchup_schedule, remaining_days,
+)
 from courtside.models import Player, ProGame, ProSchedule, Team
 
 from conftest import BE, C, F, G, IR, PF, PG, SF, SG, UTIL
@@ -96,7 +100,51 @@ def test_games_left_counts_best_lineup_each_day():
     assert games_left(t, SCHED, [DAY, DAY + 1], SMALL, DAY) == 3
 
 
-def test_remaining_days():
-    settings = {"scheduleSettings": {"matchupPeriods": {"3": [8, 9, 10, 11]}}}
-    assert remaining_days(settings, 3, 10) == [10, 11]
-    assert remaining_days({}, 3, 10) == []
+# The 2026-27 season as ESPN lays it out for Joe's league: day 1 is Tue Oct 20,
+# matchup 1 is Oct 20-25, matchup 5 is Nov 16-22, matchup 18 is Feb 15-28 (two
+# ESPN weeks, over the All-Star break) and matchup 19 is Mar 1-7.
+def ms(*args):
+    return int(datetime(*args, tzinfo=timezone.utc).timestamp() * 1000)
+
+
+SEASON = ProSchedule(teams={1: "BOS", 2: "NYK"}, games={
+    # 10:30pm EDT on Oct 20 is already Oct 21 in UTC.
+    1: {1: ProGame(1, 1, ms(2026, 10, 21, 2, 30), 1, 2), 2: ProGame(1, 1, ms(2026, 10, 21, 2, 30), 1, 2)},
+    # 12pm EST on Thu Nov 19.
+    31: {1: ProGame(2, 31, ms(2026, 11, 19, 17, 0), 2, 1), 2: ProGame(2, 31, ms(2026, 11, 19, 17, 0), 2, 1)},
+})
+WEEKS = {"scheduleSettings": {"matchupPeriods": {
+    **{str(w): [w] for w in range(1, 18)}, "18": [18, 19], "19": [20]}}}
+
+
+def test_first_day_comes_from_game_dates_in_eastern_time():
+    assert first_day(SEASON) == date(2026, 10, 20)
+    assert first_day(ProSchedule(teams={}, games={})) is None
+
+
+def test_matchup_periods_are_espn_weeks_not_days():
+    # ESPN's matchupPeriods says week 5 is [5]: ESPN week 5, which is days 28-34.
+    assert matchup_days(WEEKS, SEASON, 5) == list(range(28, 35))
+    # Week 1 starts on a Tuesday, so it's short.
+    assert matchup_days(WEEKS, SEASON, 1) == list(range(1, 7))
+
+
+def test_remaining_days_midweek():
+    # Thursday Nov 19 is day 31; Sunday Nov 22 is the last day of matchup 5.
+    assert remaining_days(WEEKS, SEASON, 5, 31) == [31, 32, 33, 34]
+    assert remaining_days(WEEKS, SEASON, 5, 34) == [34]
+    assert remaining_days(WEEKS, SEASON, 5, 35) == []
+
+
+def test_remaining_days_without_settings_or_games():
+    # No mapping: a matchup period is the ESPN week with the same number.
+    assert remaining_days({}, SEASON, 5, 31) == [31, 32, 33, 34]
+    assert remaining_days(WEEKS, ProSchedule(teams={}, games={}), 5, 31) == []
+
+
+def test_matchup_schedule_dates():
+    weeks = {w["week"]: w for w in matchup_schedule(WEEKS, SEASON)}
+    assert weeks[1] == {"week": 1, "first_day": 1, "last_day": 6, "start": "2026-10-20", "end": "2026-10-25"}
+    assert (weeks[5]["start"], weeks[5]["end"]) == ("2026-11-16", "2026-11-22")
+    assert (weeks[18]["start"], weeks[18]["end"]) == ("2027-02-15", "2027-02-28")
+    assert (weeks[19]["start"], weeks[19]["end"]) == ("2027-03-01", "2027-03-07")

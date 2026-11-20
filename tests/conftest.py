@@ -57,7 +57,9 @@ LEAGUE_VIEWS = {
     "mSettings": {
         "settings": {
             "name": "Test League",
-            "scheduleSettings": {"matchupPeriods": {"1": [TODAY - 1, TODAY, TODAY + 1], "2": [TODAY + 2]}},
+            # Matchup periods map to ESPN weeks (Mon-Sun), not days. Day 1 is Wed Oct 14,
+            # 2026 (see PRO_SCHEDULE), so week 1 is days 1-5 and week 2 is days 6-12.
+            "scheduleSettings": {"matchupPeriods": {"1": [1], "2": [2]}},
             "rosterSettings": {
                 "lineupSlotCounts": {
                     str(PG): 1, str(SG): 1, str(SF): 1, str(PF): 1, str(C): 1,
@@ -94,13 +96,14 @@ LEAGUE_VIEWS["mPendingTransactions"] = {"pendingTransactions": [
      "items": [{"type": "ADD", "playerId": 202, "toTeamId": TEAM_ID}]},
 ]}
 
-# NBA teams 1 (BOS) and 2 (NYK) play each other today. Every fake rostered
+# NBA teams 1 (BOS) and 2 (NYK) play each other today, Sat Oct 17, 2026 at
+# 7:30pm Eastern, which makes day 1 Wed Oct 14. Every fake rostered
 # player is on team 1, so all of them have a game today and none on day 5.
 PRO_SCHEDULE = {"settings": {"proTeams": [
     {"id": 1, "abbrev": "bos", "proGamesByScoringPeriod": {str(TODAY): [
-        {"id": 9001, "date": 1792000000000, "homeProTeamId": 1, "awayProTeamId": 2, "scoringPeriodId": TODAY}]}},
+        {"id": 9001, "date": 1792279800000, "homeProTeamId": 1, "awayProTeamId": 2, "scoringPeriodId": TODAY}]}},
     {"id": 2, "abbrev": "nyk", "proGamesByScoringPeriod": {str(TODAY): [
-        {"id": 9001, "date": 1792000000000, "homeProTeamId": 1, "awayProTeamId": 2, "scoringPeriodId": TODAY}]}},
+        {"id": 9001, "date": 1792279800000, "homeProTeamId": 1, "awayProTeamId": 2, "scoringPeriodId": TODAY}]}},
 ]}}
 
 ACTIVITY = {"topics": [

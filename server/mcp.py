@@ -23,7 +23,7 @@ from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import JSONResponse, Response
 
 from courtside import EspnClient, EspnError
-from courtside.checkup import Finding, check_day, games_left, remaining_days
+from courtside.checkup import Finding, check_day, day_date, first_day, games_left, matchup_days
 from courtside.transactions import LineupError, slot_counts_from_settings
 
 from . import app as rest
@@ -62,8 +62,15 @@ def _checkup(client: EspnClient, day: int | None = None) -> dict:
     if matchup:
         home = matchup.home_team_id == me.id
         opp = teams.get(matchup.away_team_id if home else matchup.home_team_id)
-        days = remaining_days(settings, week, day)
+        all_days = matchup_days(settings, sched, week)
+        days = [d for d in all_days if d >= day]
         mine = games_left(me, sched, days, counts, day)
+        start = first_day(sched)
+        if start and all_days:
+            week_info.update({
+                "first_day": all_days[0], "last_day": all_days[-1],
+                "start": day_date(start, all_days[0]).isoformat(), "end": day_date(start, all_days[-1]).isoformat(),
+            })
         week_info.update({
             "my_points": matchup.home_points if home else matchup.away_points,
             "opponent": opp.name if opp else None,
@@ -199,8 +206,8 @@ TOOLS: dict[str, tuple[Callable[..., dict], dict]] = {
     }),
     "get_league": (_league, {
         "title": "League",
-        "description": "League settings (scoring, lineup slots, acquisition limits and budget) and standings "
-                       "with each team's id.",
+        "description": "League settings (scoring, lineup slots, acquisition limits and budget), today's day "
+                       "and week, every week's first and last day with dates, and standings with each team's id.",
         "inputSchema": {"type": "object", "properties": {}},
     }),
     "league_activity": (_activity, {

@@ -13,7 +13,9 @@ that can all start together form a matroid.
 
 from __future__ import annotations
 
+from collections import Counter
 from dataclasses import dataclass, field
+from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
 from .models import Player, ProSchedule, Team
@@ -185,7 +187,71 @@ def games_left(
     return total
 
 
-def remaining_days(settings: dict[str, Any], matchup_period: int, today: int) -> list[int]:
-    """Scoring periods left in a matchup period, including today."""
+# ---- the calendar: scoring periods (days), ESPN weeks, matchup periods --------
+#
+# ESPN numbers each day of the season as a scoring period, starting at 1. Its
+# league settings map each matchup period to the ESPN *weeks* it covers
+# (scheduleSettings.matchupPeriods, e.g. {"5": [5], "18": [18, 19]}), not to
+# days. ESPN's weeks run Monday to Sunday, with week 1 running from day 1 to
+# the first Sunday. Nothing in the league says which date day 1 is, so we read
+# it off the NBA schedule, where every game carries both its day and its date.
+
+# NBA games tip between noon and about 11pm Eastern. A fixed UTC-5 puts every
+# one on its Eastern calendar day, with or without daylight saving time.
+_EASTERN = timezone(timedelta(hours=-5))
+
+
+def first_day(sched: ProSchedule) -> date | None:
+    """The calendar date of scoring period 1, or None without any games."""
+    votes: Counter[date] = Counter()
+    for period, games in sched.games.items():
+        for g in games.values():
+            played = datetime.fromtimestamp(g.date / 1000, _EASTERN).date()
+            votes[played - timedelta(days=period - 1)] += 1
+    return votes.most_common(1)[0][0] if votes else None
+
+
+def day_date(start: date, day: int) -> date:
+    return start + timedelta(days=day - 1)
+
+
+def week_days(start: date, week: int) -> range:
+    """The scoring periods in ESPN week `week` (Monday to Sunday)."""
+    monday = start - timedelta(days=start.weekday()) + timedelta(weeks=week - 1)
+    first = (monday - start).days + 1
+    return range(max(first, 1), first + 7)
+
+
+def matchup_weeks(settings: dict[str, Any], matchup_period: int) -> list[int]:
+    """ESPN weeks in a matchup period; a matchup period is one week if settings don't say."""
     periods = (settings.get("scheduleSettings") or {}).get("matchupPeriods") or {}
-    return sorted(d for d in periods.get(str(matchup_period), []) if d >= today)
+    return [int(w) for w in periods.get(str(matchup_period)) or [matchup_period]]
+
+
+def matchup_days(settings: dict[str, Any], sched: ProSchedule, matchup_period: int) -> list[int]:
+    """Every scoring period in a matchup period, in order."""
+    start = first_day(sched)
+    if start is None:
+        return []
+    return sorted({d for w in matchup_weeks(settings, matchup_period) for d in week_days(start, w)})
+
+
+def remaining_days(settings: dict[str, Any], sched: ProSchedule, matchup_period: int, today: int) -> list[int]:
+    """Scoring periods left in a matchup period, including today."""
+    return [d for d in matchup_days(settings, sched, matchup_period) if d >= today]
+
+
+def matchup_schedule(settings: dict[str, Any], sched: ProSchedule) -> list[dict[str, Any]]:
+    """Each matchup period with its first and last day and their dates."""
+    start = first_day(sched)
+    periods = (settings.get("scheduleSettings") or {}).get("matchupPeriods") or {}
+    out = []
+    for mp in sorted(periods, key=int):
+        days = matchup_days(settings, sched, int(mp))
+        if start is None or not days:
+            continue
+        out.append({
+            "week": int(mp), "first_day": days[0], "last_day": days[-1],
+            "start": day_date(start, days[0]).isoformat(), "end": day_date(start, days[-1]).isoformat(),
+        })
+    return out

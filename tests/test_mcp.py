@@ -87,7 +87,8 @@ def test_checkup(api):
     assert first["kind"] == "lineup" and first["message"].startswith("You can start 2 more players")
     assert {"empty_slot"} <= {f["kind"] for f in body["findings"]}
     # Days TODAY and TODAY+1 remain; only TODAY has games, and all ten slots can be filled.
-    assert body["week"] == {"week": 1, "my_points": 120.5, "opponent": "Other Team", "opponent_points": 95.0,
+    assert body["week"] == {"week": 1, "first_day": 1, "last_day": 5, "start": "2026-10-14", "end": "2026-10-18",
+                            "my_points": 120.5, "opponent": "Other Team", "opponent_points": 95.0,
                             "days_left": 2, "my_starts_left": 10, "opponent_starts_left": 0}
     assert body["pending_claims"] == [{"type": "WAIVER", "bid": 0, "expires": None, "items": ["ADD Waiver Will"]}]
 
