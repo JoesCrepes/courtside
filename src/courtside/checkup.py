@@ -236,6 +236,27 @@ def matchup_days(settings: dict[str, Any], sched: ProSchedule, matchup_period: i
     return sorted({d for w in matchup_weeks(settings, matchup_period) for d in week_days(start, w)})
 
 
+def current_matchup_days(
+    settings: dict[str, Any], sched: ProSchedule, matchup_period: int, today: int,
+) -> tuple[list[int], bool]:
+    """Days of the matchup period ESPN says `today` is in, and whether they're exact.
+
+    Usually that's `matchup_days`. But ESPN stretches one of its weeks over two
+    calendar weeks around the All-Star break (in 2026-27, its week 18 is Feb
+    15-28), which nothing in the league settings shows, so from there on the
+    calendar runs a week early. When today falls outside the days we worked
+    out, ESPN is telling us the matchup is still on: it runs at least through
+    this Sunday. Then we return today through Sunday, and say they aren't exact
+    (the matchup's first day is unknown, and it may not end this Sunday).
+    """
+    days = matchup_days(settings, sched, matchup_period)
+    start = first_day(sched)
+    if not days or start is None or today in days:
+        return days, bool(days)
+    sunday = today + 6 - day_date(start, today).weekday()
+    return list(range(today, sunday + 1)), False
+
+
 def remaining_days(settings: dict[str, Any], sched: ProSchedule, matchup_period: int, today: int) -> list[int]:
     """Scoring periods left in a matchup period, including today."""
     return [d for d in matchup_days(settings, sched, matchup_period) if d >= today]

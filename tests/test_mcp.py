@@ -93,6 +93,14 @@ def test_checkup(api):
     assert body["pending_claims"] == [{"type": "WAIVER", "bid": 0, "expires": None, "items": ["ADD Waiver Will"]}]
 
 
+def test_checkup_when_espn_calendar_runs_past_ours(api):
+    # Day 7 is Tue Oct 20 in the fake season. ESPN still says matchup 1, which
+    # by the calendar ended on day 5, so count through Sun Oct 25 (day 12).
+    week = call(api, "checkup", day=7)["structuredContent"]["week"]
+    assert week["days_left"] == 6 and (week["last_day"], week["end"]) == (12, "2026-10-25")
+    assert "first_day" not in week and "All-Star" in week["note"]
+
+
 def test_read_tools(api):
     roster = call(api, "get_roster")["structuredContent"]
     assert roster["id"] == TEAM_ID and len(roster["roster"]) == 11

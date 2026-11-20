@@ -130,6 +130,10 @@ def test_league(api):
         {"week": 1, "first_day": 1, "last_day": 5, "start": "2026-10-14", "end": "2026-10-18"},
         {"week": 2, "first_day": 6, "last_day": 12, "start": "2026-10-19", "end": "2026-10-25"},
     ]
+    cal = body["espn_calendar"]
+    assert cal["schedule_settings"]["matchupPeriods"] == {"1": [1], "2": [2]}
+    assert cal["status"] == {"latestScoringPeriod": 4}
+    assert cal["season"] == {}  # the fake season has nothing but per-team data
 
 
 def test_scoreboard_defaults_to_current_week_with_live_points(api):

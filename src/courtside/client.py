@@ -109,6 +109,18 @@ class EspnClient:
             "matchup_period": int(st.get("currentMatchupPeriod") or 1),
         }
 
+    def raw_status(self) -> dict:
+        """ESPN's league status as it sends it (scoring and matchup period fields)."""
+        return self.league("mStatus").get("status", {})
+
+    def season_info(self) -> dict | None:
+        """ESPN's season-level record for the game, without per-team data; None if ESPN won't say."""
+        try:
+            data = self._cached("season_info", lambda: self._get([], url=self.game_url))
+        except Exception:  # only ever shown as reference data; never worth failing a call over
+            return None
+        return {k: v for k, v in data.items() if k != "settings"} if isinstance(data, dict) else None
+
     def current_scoring_period(self) -> int:
         return self.status()["scoring_period"]
 
