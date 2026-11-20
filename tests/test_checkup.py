@@ -187,10 +187,29 @@ def _full_season(skip):
 FULL = _full_season(range(122, 128))
 
 
-def test_all_star_break_is_the_longest_gap_in_games():
+def test_all_star_break_is_the_longest_gap_in_games_in_february():
     assert all_star_break(FULL) == (122, 127)
-    assert all_star_break(SEASON) == (2, 30)  # a two-game schedule is all gap
     assert all_star_break(_full_season(())) is None
+    # A two-game schedule (Oct 20 and Nov 19) has no February gap.
+    assert all_star_break(SEASON) is None
+
+
+# The live schedule also has an empty stretch in early December, at least as
+# long as the All-Star break: taking it for the break stretched week 7 to
+# Nov 30-Dec 13. Its exact days are a stand-in; what matters is that it runs
+# over a Sunday.
+CUP_GAP = range(45, 51)  # Thu Dec 3 to Tue Dec 8
+
+
+def test_an_empty_stretch_in_december_isnt_the_all_star_break():
+    with_cup = _full_season(list(CUP_GAP) + list(range(122, 128)))
+    assert all_star_break(with_cup) == (122, 127)
+    assert long_week(with_cup, date(2026, 10, 20)) == 18
+    assert all_star_break(_full_season(CUP_GAP)) is None
+    weeks = {w["week"]: w for w in matchup_schedule(LIVE_WEEKS, with_cup)}
+    assert (weeks[7]["start"], weeks[7]["end"]) == ("2026-11-30", "2026-12-06")
+    assert (weeks[18]["start"], weeks[18]["end"]) == ("2027-02-15", "2027-02-28")
+    assert (weeks[22]["last_day"], weeks[22]["end"]) == (160, "2027-03-28")
 
 
 def test_espn_stretches_the_week_the_break_runs_over():
