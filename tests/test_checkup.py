@@ -1,8 +1,8 @@
 from datetime import date, datetime, timezone
 
 from courtside.checkup import (
-    best_starters, check_day, current_matchup_days, first_day, games_left, matchup_days, matchup_schedule,
-    remaining_days,
+    all_star_break, best_starters, check_day, current_matchup_days, first_day, games_left, long_week, matchup_days,
+    matchup_schedule, remaining_days,
 )
 from courtside.models import Player, ProGame, ProSchedule, Team
 
@@ -173,3 +173,45 @@ def test_matchups_after_the_all_star_break_count_to_sunday():
     # Wed Mar 3 is day 135 and ESPN says matchup 19, which really is Mar 1-7.
     days, exact = current_matchup_days(LIVE_WEEKS, SEASON, 19, 135)
     assert (days, exact) == ([135, 136, 137, 138, 139], False)
+
+
+# A full season in the shape of this one: games every day of the 160-day
+# season except the All-Star break, Thu Feb 18 (day 122) to Tue Feb 23 (day
+# 127), which runs over Sunday Feb 21.
+def _full_season(skip):
+    noon = ms(2026, 10, 20, 17, 0)  # day 1, 12pm EDT
+    return ProSchedule(teams={1: "BOS", 2: "NYK"}, games={
+        d: {1: ProGame(d, d, noon + (d - 1) * 86_400_000, 1, 2)} for d in range(1, 161) if d not in skip})
+
+
+FULL = _full_season(range(122, 128))
+
+
+def test_all_star_break_is_the_longest_gap_in_games():
+    assert all_star_break(FULL) == (122, 127)
+    assert all_star_break(SEASON) == (2, 30)  # a two-game schedule is all gap
+    assert all_star_break(_full_season(())) is None
+
+
+def test_espn_stretches_the_week_the_break_runs_over():
+    assert long_week(FULL, date(2026, 10, 20)) == 18
+    # A break inside one calendar week (Tue-Thu) stretches nothing.
+    assert long_week(_full_season(range(120, 123)), date(2026, 10, 20)) is None
+
+
+def test_live_league_dates_match_espn():
+    # 22 one-week periods, as ESPN sends them; dates as ESPN's league schedule shows them.
+    weeks = {w["week"]: w for w in matchup_schedule(LIVE_WEEKS, FULL)}
+    assert (weeks[17]["start"], weeks[17]["end"]) == ("2027-02-08", "2027-02-14")
+    assert (weeks[18]["start"], weeks[18]["end"]) == ("2027-02-15", "2027-02-28")
+    assert (weeks[19]["start"], weeks[19]["end"]) == ("2027-03-01", "2027-03-07")
+    # ESPN's finalScoringPeriod for this league is 160 (Sun Mar 28).
+    assert (weeks[22]["last_day"], weeks[22]["end"]) == (160, "2027-03-28")
+
+
+def test_first_half_of_the_all_star_matchup_counts_both_weeks():
+    # Tue Feb 16 is day 120: 13 days left, through Sun Feb 28 (day 132).
+    assert current_matchup_days(LIVE_WEEKS, FULL, 18, 120) == (list(range(119, 133)), True)
+    assert remaining_days(LIVE_WEEKS, FULL, 18, 120) == list(range(120, 133))
+    # After the break the calendar and ESPN agree, so nothing needs the fallback.
+    assert current_matchup_days(LIVE_WEEKS, FULL, 19, 135) == (list(range(133, 140)), True)
