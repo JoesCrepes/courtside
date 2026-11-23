@@ -28,6 +28,7 @@ courtside roster                 # today's lineup
 courtside roster --day 10        # lineup for scoring period (day) 10
 courtside fa --pos C             # top free agents at C
 courtside move "brunson" PG      # plan a move (dry run, prints the payload)
+courtside start-active           # start bench players with games over starters who can't play
 courtside add 1234567 --drop "giddey"
 courtside add 1234567 --waiver --bid 7
 courtside drop "giddey"
@@ -66,6 +67,7 @@ A FastAPI app over the same client, deployed on Vercel, for the Android app.
 | `GET /players?q=&pos=&available=` | Free agents, or search all players |
 | `GET /activity`, `GET /pending` | League transactions, pending claims and trades |
 | `POST /lineup/preview` → `/lineup/confirm` | Lineup moves |
+| `POST /lineup/start-active/preview`, `POST /lineup/start-active?day=` | Start active players (see `autostart.py`); the second submits |
 | `POST /roster/preview` → `/roster/confirm` | Add, drop, waiver claim |
 
 Send `Authorization: Bearer <token>`. A Supabase Auth access token for an
@@ -89,6 +91,7 @@ sessions or event stream. Auth is the same bearer token as above.
 | `find_players` | Free agents, or any player by name |
 | `get_league` | Settings and standings |
 | `league_activity` | Recent transactions and pending claims/trades |
+| `start_active_players` | ESPN's "Start Active Players", made safe to run unasked: starters with no game or OUT go to the bench for bench players who can play. Never benches anyone who can play, never touches IR, adds, drops or claims. Submits at once (or `dry_run`) and says what changed |
 | `plan_lineup_move`, `plan_roster_move` | Work out a move and return a summary plus a plan. Change nothing |
 | `confirm_move` | Submit a plan. Signed-in users only; refused if the team changed since the plan |
 
@@ -116,6 +119,7 @@ are.
 | Module | What it does |
 |---|---|
 | `transactions.py` | Pure payload builders, lineup move planner, capture diff. No network. |
+| `autostart.py` | Start active players: the lineup moves that need no judgment. No network. |
 | `client.py` | Reads (`lm-api-reads`) and writes (`lm-api-writes`), with dry-run gating. |
 | `models.py` | `Team` / `Player` views over ESPN's JSON. |
 | `checkup.py` | Best lineup for a day and the findings behind `checkup`. No network. |

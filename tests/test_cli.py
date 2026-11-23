@@ -127,3 +127,9 @@ def test_compare_reads_har_exports(tmp_path, capsys):
     f.write_text(json.dumps(har))
     assert cli.main(["compare", str(f)]) == 0
     assert "OK: our ROSTER builder" in capsys.readouterr().out
+
+
+def test_start_active_command_is_dry_run_by_default(env, fake, capsys):
+    assert cli.main(["start-active"]) == 0
+    out = capsys.readouterr().out
+    assert "Bench Ben: BE -> UTIL" in out and '"dry_run": true' in out and fake.posts == []

@@ -245,3 +245,12 @@ def test_espn_rejection_is_422(api, fake):
     pv = api.post("/roster/preview", headers=USER, json=intent).json()
     r = api.post("/roster/confirm", headers=USER, json={**intent, "expect": pv["expect"], "scoring_period": TODAY})
     assert r.status_code == 422 and "Roster is full" in r.json()["detail"]
+
+
+def test_start_active_preview_and_run(api, fake):
+    r = api.post("/lineup/start-active/preview", headers=APIKEY)
+    assert r.status_code == 200 and r.json()["summary"] == ["Bench Ben: BE -> UTIL", "Bench Bigs: BE -> UTIL"]
+    assert api.post("/lineup/start-active", headers=APIKEY).status_code == 403
+    assert fake.posts == []
+    r = api.post("/lineup/start-active", headers=USER)
+    assert r.status_code == 200 and r.json()["status"] == "EXECUTED" and len(fake.posts[0]["items"]) == 2

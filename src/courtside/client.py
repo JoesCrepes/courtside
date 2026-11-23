@@ -8,6 +8,7 @@ from typing import Any
 
 import requests
 
+from .autostart import AutoStart, start_active_for_day
 from .config import Config
 from .models import Activity, Matchup, Player, ProSchedule, Team
 from .slots import SLOT_IDS
@@ -280,6 +281,16 @@ class EspnClient:
     ) -> dict:
         payload = self.plan_lineup(player_query, to_slot, swap_with=swap_with, scoring_period=scoring_period)
         return self.submit(payload, execute=execute)
+
+    def plan_start_active(self, scoring_period: int | None = None) -> tuple[AutoStart, dict | None, int]:
+        """What start-active-players would change for a day, and its ROSTER payload (None if nothing)."""
+        today = self.current_scoring_period()
+        period = scoring_period or today
+        if period < today:
+            raise ValueError(f"day {period} is over; lineups can only change from today ({today}) on")
+        team = self.team(scoring_period=period)
+        plan = start_active_for_day(team, self.pro_schedule(), period, slot_counts_from_settings(self.settings()))
+        return plan, (self.build_lineup(plan.moves, period) if plan.moves else None), period
 
     def build_lineup(self, moves: list[LineupMove], scoring_period: int) -> dict:
         return lineup_payload(self._my_team_id(), self._member_id(), scoring_period, moves)
