@@ -294,6 +294,25 @@ def lineup_confirm(body: LineupConfirm, client: EspnClient = Depends(get_client)
     return _confirm(client, _plan_lineup(client, body), body)
 
 
+@app.post("/lineup/start-active/preview", dependencies=[Depends(caller)])
+def start_active_preview(day: int | None = None, client: EspnClient = Depends(get_client)) -> dict:
+    """What start-active-players would change (see courtside/autostart.py). Changes nothing."""
+    _, payload, day = client.plan_start_active(day)
+    return _preview(client, payload) if payload else {"type": "ROSTER", "summary": [], "scoring_period": day, "expect": []}
+
+
+@app.post("/lineup/start-active", dependencies=[Depends(writer)])
+def start_active(day: int | None = None, client: EspnClient = Depends(get_client)) -> dict:
+    """Make the no-judgment lineup moves now. Needs no preview: it never benches a player who can play."""
+    _, payload, day = client.plan_start_active(day)
+    if payload is None:
+        return {"status": None, "summary": [], "scoring_period": day}
+    result = client.submit(payload, execute=True)
+    if result.get("dry_run"):
+        raise HTTPException(503, "writes are disabled on the server (ESPN_WRITE_ENABLED)")
+    return {"status": result.get("status"), "id": result.get("id"), **_preview(client, payload)}
+
+
 @app.post("/roster/preview", dependencies=[Depends(caller)])
 def roster_preview(body: RosterIntent, client: EspnClient = Depends(get_client)) -> dict:
     return _preview(client, _plan_roster(client, body))

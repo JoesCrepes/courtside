@@ -1,6 +1,6 @@
 import json
 
-from conftest import BE, PG, TEAM_ID, TODAY
+from conftest import BE, PG, TEAM_ID, TODAY, UTIL
 from test_server import APIKEY, SUPABASE, USER, api  # noqa: F401  (fixture)
 
 
@@ -68,14 +68,18 @@ def test_no_stream(api):
     assert api.get("/mcp", headers=APIKEY).status_code == 405
 
 
-def test_tools_are_listed_and_only_confirm_writes(api):
+def test_tools_are_listed_and_only_confirm_and_start_active_write(api):
     tools = {t["name"]: t for t in rpc(api, "tools/list").json()["result"]["tools"]}
     assert set(tools) == {
         "checkup", "get_roster", "get_scoreboard", "find_players", "get_league", "league_activity",
-        "plan_lineup_move", "plan_roster_move", "confirm_move"}
+        "plan_lineup_move", "plan_roster_move", "start_active_players", "confirm_move"}
     assert all(t["inputSchema"]["type"] == "object" for t in tools.values())
-    assert [n for n, t in tools.items() if not t["annotations"]["readOnlyHint"]] == ["confirm_move"]
+    assert [n for n, t in tools.items() if not t["annotations"]["readOnlyHint"]] == [
+        "start_active_players", "confirm_move"]
     assert tools["confirm_move"]["annotations"]["destructiveHint"]
+    # start_active_players only adds starts, so it isn't destructive, and a second run is a no-op.
+    assert tools["start_active_players"]["annotations"] == {
+        "readOnlyHint": False, "destructiveHint": False, "idempotentHint": True, "openWorldHint": True}
 
 
 def test_checkup(api):
@@ -196,3 +200,41 @@ def test_bad_plans_are_tool_errors(api):
     assert call(api, "plan_roster_move")["isError"]
     r = rpc(api, "tools/call", {"name": "plan_lineup_move", "arguments": {"player": "ben"}}).json()
     assert r["error"]["code"] == -32602 and "slot" in r["error"]["message"]
+
+
+# ---- start active players --------------------------------------------------
+# The fake roster has two empty UTIL slots and two bench players with games.
+
+def test_start_active_players_dry_run_changes_nothing(api, fake):
+    body = call(api, "start_active_players", headers=APIKEY, dry_run=True)["structuredContent"]
+    assert body["submitted"] is False and fake.posts == []
+    assert body["summary"] == ["Bench Ben: BE -> UTIL", "Bench Bigs: BE -> UTIL"]
+    assert [s["player"] for s in body["started"]] == ["Bench Ben", "Bench Bigs"]
+    assert body["started"][0]["game"]["opponent"] == "NYK"
+    assert body["benched"] == [] and body["still_idle"] == []
+
+
+def test_start_active_players_submits_in_one_call(api, fake):
+    body = call(api, "start_active_players")["structuredContent"]
+    assert body["submitted"] is True and body["status"] == "EXECUTED" and body["day"] == TODAY
+    [post] = fake.posts
+    assert post["type"] == "ROSTER" and post["scoringPeriodId"] == TODAY
+    assert [(i["playerId"], i["fromLineupSlotId"], i["toLineupSlotId"]) for i in post["items"]] == [
+        (109, BE, UTIL), (110, BE, UTIL)]
+
+
+def test_start_active_players_needs_a_signed_in_user(api, fake):
+    r = call(api, "start_active_players", headers=APIKEY)
+    assert r["isError"] and "dry_run" in r["content"][0]["text"] and fake.posts == []
+
+
+def test_start_active_players_refuses_past_days_and_disabled_writes(api, fake, monkeypatch):
+    assert "over" in call(api, "start_active_players", day=TODAY - 1)["content"][0]["text"]
+    monkeypatch.setenv("ESPN_WRITE_ENABLED", "0")
+    assert "ESPN_WRITE_ENABLED" in call(api, "start_active_players")["content"][0]["text"]
+    assert fake.posts == []
+
+
+def test_instructions_name_start_active_players_as_the_exception(api):
+    text = rpc(api, "initialize", {"protocolVersion": "2025-06-18"}).json()["result"]["instructions"]
+    assert "Never confirm without a yes" in text and "start_active_players" in text

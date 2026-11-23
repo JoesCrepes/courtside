@@ -23,6 +23,7 @@ from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import JSONResponse, Response
 
 from courtside import EspnClient, EspnError
+from courtside.checkup import CANT_PLAY
 from courtside.checkup import Finding, check_day, current_matchup_days, day_date, first_day, games_left
 from courtside.transactions import LineupError, slot_counts_from_settings
 
@@ -38,7 +39,10 @@ INSTRUCTIONS = (
     "needs attention today and this week. Days are ESPN scoring periods (one per day of the season) and weeks "
     "are matchup periods; omit them for today and this week. Fantasy averages are points per game. "
     "To change the lineup or roster, call plan_lineup_move or plan_roster_move, show the user the plan's "
-    "summary, and call confirm_move with that plan only after they say yes. Never confirm without a yes."
+    "summary, and call confirm_move with that plan only after they say yes. Never confirm without a yes. "
+    "The one exception is start_active_players: it only swaps starters who can't play (no game, or OUT) for "
+    "bench players who can, never benches anyone who can play, and never adds, drops, claims, trades or "
+    "touches IR. The team's owner has said it may run without asking first; tell them what it changed."
 )
 
 
@@ -173,6 +177,35 @@ def _confirm(client: EspnClient, plan: dict, *, who: Caller) -> dict:
         raise ValueError(str(e.detail)) from None
 
 
+def _start_active(client: EspnClient, day: int | None = None, dry_run: bool = False, *, who: Caller) -> dict:
+    if not dry_run and not who.can_write:
+        raise ValueError("Changing the lineup needs a signed-in user. This connector is using the read-only API "
+                         "key; reconnect it with OAuth sign-in, or pass dry_run=true to see what would change.")
+    plan, payload, day = client.plan_start_active(day)
+    sched = client.pro_schedule()
+
+    def why_out(p: Any) -> str:
+        return p.injury_status if p.injury_status in CANT_PLAY else "no game"
+
+    body: dict[str, Any] = {
+        "day": day,
+        "submitted": False,
+        "started": [{"player": p.name, "game": rest._game(p, sched, day)} for p in plan.started],
+        "benched": [{"player": p.name, "reason": why_out(p)} for p in plan.benched],
+        "still_idle": [{"player": p.name, "reason": why_out(p)} for p in plan.idle],
+        "summary": rest._preview(client, payload)["summary"] if payload else [],
+    }
+    if payload is None:
+        body["message"] = "Nothing to change: no one on the bench who can play could replace a starter who can't."
+        return body
+    if dry_run:
+        return body
+    result = client.submit(payload, execute=True)
+    if result.get("dry_run"):
+        raise ValueError("writes are disabled on the server (ESPN_WRITE_ENABLED); nothing was submitted")
+    return {**body, "submitted": True, "status": result.get("status"), "id": result.get("id")}
+
+
 _DAY = {"type": "integer", "minimum": 1, "description": "ESPN scoring period (day). Omit for today."}
 _WEEK = {"type": "integer", "minimum": 1, "description": "Matchup period (week). Omit for this week."}
 
@@ -241,6 +274,18 @@ TOOLS: dict[str, tuple[Callable[..., dict], dict]] = {
             "waiver": {"type": "boolean", "default": False, "description": "Claim off waivers instead."},
             "bid": {"type": "integer", "minimum": 0, "description": "FAAB bid for a waiver claim."}}},
     }),
+    "start_active_players": (_start_active, {
+        "title": "Start active players",
+        "description": "Like ESPN's Start Active Players button, made safe to run unattended. For one day, moves "
+                       "starters who can't play (no game, or OUT, IR or suspended) to the bench and starts bench "
+                       "players who can (have a game and aren't OUT), shifting starters between slots only to "
+                       "make room. Never benches a player who can play, and never adds, drops, claims, trades "
+                       "or touches IR. Locked players stay put. Submits right away and returns exactly what "
+                       "changed; with dry_run it only reports. Safe to call again: a second call changes nothing.",
+        "inputSchema": {"type": "object", "properties": {
+            "day": {**_DAY, "description": "ESPN scoring period (day), today or later. Omit for today."},
+            "dry_run": {"type": "boolean", "default": False, "description": "Report the moves without making them."}}},
+    }),
     "confirm_move": (_confirm, {
         "title": "Submit a planned move",
         "description": "Submit a plan from plan_lineup_move or plan_roster_move to ESPN. Only call this after "
@@ -252,13 +297,16 @@ TOOLS: dict[str, tuple[Callable[..., dict], dict]] = {
 }
 
 # Tools that change the team; the rest only read ESPN.
-WRITES = {"confirm_move"}
+WRITES = {"confirm_move", "start_active_players"}
+# Writes that only ever add starts: nothing is benched that could score, so
+# running one unasked can't make the lineup worse, and a second run is a no-op.
+SAFE_WRITES = {"start_active_players"}
 
 
 def _tool_list() -> list[dict]:
     return [{"name": name, **spec, "annotations": {
-                "readOnlyHint": name not in WRITES, "destructiveHint": name in WRITES,
-                "idempotentHint": False, "openWorldHint": True}}
+                "readOnlyHint": name not in WRITES, "destructiveHint": name in WRITES - SAFE_WRITES,
+                "idempotentHint": name in SAFE_WRITES, "openWorldHint": True}}
             for name, (_, spec) in TOOLS.items()]
 
 

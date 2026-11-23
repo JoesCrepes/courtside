@@ -41,6 +41,17 @@ def cmd_move(client: EspnClient, args: argparse.Namespace) -> None:
     ))
 
 
+def cmd_start_active(client: EspnClient, args: argparse.Namespace) -> None:
+    plan, payload, day = client.plan_start_active(args.day)
+    if payload is None:
+        print(f"day {day}: nothing to change")
+        return
+    for m in plan.moves:
+        name = next(p.name for p in plan.started + plan.benched + plan.shuffled if p.id == m.player_id)
+        print(f"  {name}: {slot_name(m.from_slot)} -> {slot_name(m.to_slot)}")
+    _print_json(client.submit(payload, execute=args.execute))
+
+
 def cmd_add(client: EspnClient, args: argparse.Namespace) -> None:
     drop_id = None
     if args.drop:
@@ -95,6 +106,10 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--day", type=int, help="scoring period id (default: today)")
     p.add_argument("--execute", action="store_true")
 
+    p = sub.add_parser("start-active", help="start bench players with games in place of starters who can't play")
+    p.add_argument("--day", type=int, help="scoring period id (default: today)")
+    p.add_argument("--execute", action="store_true")
+
     p = sub.add_parser("add", help="add a free agent (optionally dropping someone)")
     p.add_argument("player_id", type=int)
     p.add_argument("--drop", help="rostered player id or name fragment")
@@ -120,7 +135,7 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_compare(args)
     client = EspnClient(Config.from_env())
     handler = {
-        "roster": cmd_roster, "fa": cmd_fa, "move": cmd_move, "add": cmd_add, "drop": cmd_drop,
+        "roster": cmd_roster, "fa": cmd_fa, "move": cmd_move, "start-active": cmd_start_active, "add": cmd_add, "drop": cmd_drop,
     }[args.cmd]
     try:
         handler(client, args)
